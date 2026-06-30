@@ -70,13 +70,14 @@ User types note + taps Save
 
 ### Analytics Data Flow
 ```
-Screen mounts or viewMode changes
+Screen mounts or selectedDays changes
   → loadData() → Promise.all([
-       getComplianceRate(7),     // SQLite range query
-       getComplianceRate(30),    // SQLite range query
-       getDailyBreakdown(days)   // SQLite range query + date fill
+       getComplianceRate(7),           // Weekly rate
+       getComplianceRate(30),          // Monthly rate
+       getComplianceRate(selectedDays), // Selected period rate
+       getDailyBreakdown(selectedDays)  // Per-day breakdown
      ])
-  → setWeeklyRate / setMonthlyRate / setDailyData
+  → setWeeklyRate / setMonthlyRate / setSelectedRate / setDailyData
   → re-render summary cards + bar chart
 ```
 
@@ -114,55 +115,118 @@ A single index on `date` enables fast range queries for weekly/monthly complianc
 
 ### Theming (`constants/theme.ts`)
 All design tokens are centralized in a single constants file:
-- **Colors:** Dark theme inspired by GitHub Dark (#0D1117 base) with three accent colors for the Big Three (coral red, emerald green, teal)
-- **Spacing:** 8px grid system (xs=4, sm=8, md=12, lg=16, xl=20, xxl=24, xxxl=32)
-- **FontSize:** Scale from xs=11 to xxxl=34
-- **BorderRadius:** sm=6, md=10, lg=16, xl=20, full=9999
+- **Colors:** Light monochromatic theme inspired by modern transit UI (#F4F4F6 canvas, #FFFFFF cards, #1A1A1A text). Three accent colors for the Big Three (coral red, emerald green, teal cyan)
+- **Spacing:** 4px grid system (xs=4, sm=8, md=12, lg=16, xl=20, xxl=24, xxxl=32, xxxxl=40)
+- **FontSize:** Scale from xs=12 to xxxl=40
+- **BorderRadius:** sm=8, md=12, lg=16, xl=20, xxl=24, xxxl=28, xxxxl=32, full=9999
+
+### Business Logic — Per-Pillar Compliance Formula
+
+The app uses distinct formulas for each pillar on the Analytics page:
+
+| Pillar | Formula | Max |
+|--------|---------|-----|
+| **Muscle & Bone** | `active_days / (ceil(period/7) × 3)` | Can exceed 100% (overachievement) |
+| **Nutrient Window** | `active_days / period_days` | Capped at 100% |
+| **Brain & Nerve** | `active_days / period_days` | Capped at 100% |
+
+Muscle uses 3 days/week as the sweet spot target. If the user exceeds this (e.g., 4 days = 133%), the analytics card shows a gold border with a "Bonus" badge.
+
+### Boundary Rules (Rule of Thumb)
+
+Each Daily Essential card on the Dashboard has an info icon (ℹ️) that opens a modal with validation criteria:
+
+**💪 Muscle & Bone**
+- **Klik YA:** Weight training (dumbbell, push-up, squat) to fatigue, OR rest day with protein + calcium intake met
+- **Biarkan TIDAK:** Sitting idle or light flat walking (no bone/muscle stimulus)
+
+**🥗 Nutrient Window (Net Positive Rule)**
+- **Klik YA:** IF window maintained + basic nutrition secure. If there's a small sugar slip, still click YES but log it in Quick Note
+- **Biarkan TIDAK:** IF totally broken (eating all day) or full day of junk food with no protein
+
+**🧠 Brain & Nerve**
+- **Klik YA:** Brain exits autopilot — learning complex new coding logic, system architecture debates, or reading demanding literature
+- **Biarkan TIDAK:** Mechanical work, copy-paste coding without thought, or passive social media scrolling
+
+---
 
 ### Dashboard (`app/index.tsx`)
+
+**Backdate Support:**
+The dashboard supports logging for past dates via left/right arrow navigation. When viewing a past date:
+- The greeting changes from "Good Morning/Afternoon/Evening" to "Viewing"
+- A "Today" button appears to jump back to the current date
+- All toggle and notes operations save to the selected date, not just today
+- The weekly compliance badge always shows the current 7-day rate from today
 
 **ToggleCard Component** (`React.memo`-wrapped):
 - Uses `Animated.Value` with `useRef` for press animation (scale: 1 → 0.97)
 - `Animated.spring` with native driver for zero-JS-thread animations
 - Optimistic UI update pattern: set state immediately, then async save to DB, revert on failure
+- Icons: `fitness` (muscle), `nutrition` (bowl of healthy food), `school` (graduation cap for learning)
 - Visual states:
-  - **Inactive:** Dark card background, muted border, gray icon
+  - **Inactive:** White card background, muted border, gray icon
   - **Active:** Colored background tint, colored border, filled icon with checkmark
 
 **Layout:**
 ```
-┌─────────────────────────────────┐
-│  TODAY'S CHECK-IN     Weekly    │
-│  Wed, Jun 30           71%     │
-├─────────────────────────────────┤
-│  DAILY ESSENTIALS               │
-│  ┌─────────────────────────┐    │
-│  │ 💪 Muscle & Bone     ● │    │  ← active state
-│  └─────────────────────────┘    │
-│  ┌─────────────────────────┐    │
-│  │ 🥗 Nutrient Window   ○ │    │  ← inactive state
-│  └─────────────────────────┘    │
-│  ┌─────────────────────────┐    │
-│  │ 🧠 Brain & Nerve      ● │    │
-│  └─────────────────────────┘    │
-├─────────────────────────────────┤
-│  QUICK NOTE                     │
-│  ┌─────────────────────────┐    │
-│  │ [textarea]              │    │
-│  └─────────────────────────┘    │
-│           [Save]                │
-└─────────────────────────────────┘
+┌───────────────────────────────────────┐
+│  ◀  GOOD AFTERNOON  ▶     Weekly    │
+│  Wed, Jun 30               71%     │
+│  [Today] ← only when viewing past   │
+├───────────────────────────────────────┤
+│  DAILY ESSENTIALS                    │
+│  ┌───────────────────────────────┐   │
+│  │ 🏋️ Muscle & Bone       ✅    │   │  ← active (colored tint)
+│  │ Strength training/impact      │   │
+│  └───────────────────────────────┘   │
+│  ┌───────────────────────────────┐   │
+│  │ 🥗 Nutrient Window      ○    │   │  ← inactive (white)
+│  │ IF adherence & protein       │   │
+│  └───────────────────────────────┘   │
+│  ┌───────────────────────────────┐   │
+│  │ 🎓 Brain & Nerve       ✅    │   │
+│  │ Cognitive stimulation        │   │
+│  └───────────────────────────────┘   │
+├───────────────────────────────────────┤
+│  QUICK NOTE                           │
+│  ┌───────────────────────────────┐   │
+│  │ [How are you feeling today?]  │   │
+│  │                               │   │
+│  └───────────────────────────────┘   │
+│        [ ██ Save Note ██ ]           │ ← capsule-shaped black button
+└───────────────────────────────────────┘
 ```
 
 ### Analytics (`app/analytics.tsx`)
 
+**Period Selector:**
+Horizontally scrollable capsule-shaped toggle with 6 presets: 7D, 30D, 60D, 90D, 6M, 1Y. The active period has a solid black fill with white text.
+
+**Main Compliance Card:**
+A single large card prominently displays the selected period's compliance percentage with a progress bar. Below it, a compact context row shows 7-day and 30-day rates as small inline stats, giving quick reference without visual clutter.
+
 **Bar Chart Implementation:**
-Pure React Native `View` components — no SVG/charting libraries. Each day is represented by a `dayBarsStack` (100px fixed height) containing up to three 33px segments colored by category. The `justifyContent: 'flex-end'` layout ensures bars grow from the bottom.
+Pure React Native `View` components — no SVG/charting libraries. Each day is represented by a `dayBarsStack` (100px fixed height for short periods, 80px for long periods) containing up to three 33px segments colored by category. The `justifyContent: 'flex-end'` layout ensures bars grow from the bottom.
+
+**Smart Label Strategy:**
+- For ≤7 days: every day label is shown
+- For 8–30 days: labels shown at intervals of ~8 days
+- For 31–60 days: labels shown at intervals of ~7
+- For 61–90 days: labels shown at intervals of ~6
+- For 90+ days: labels shown at intervals resulting in ~6 total
+- Labels switch from day names ("Mon") to date format ("6/15") for 60+ day ranges
+
+**Scrollable Chart:**
+For periods longer than 14 days, the bar chart becomes horizontally scrollable with fixed-width columns, keeping individual bars visible and properly spaced.
+
+**Database Export:**
+An "Export Database" button at the bottom of the screen copies the SQLite file to the app cache and opens the system share sheet. The file can be saved to Files, emailed, AirDropped, or sent to a laptop for external analysis with any SQLite browser.
 
 **State Management:**
-- `viewMode` state ('7' | '30') triggers data reload via `useCallback` dependency
+- `selectedDays` state (number) triggers data reload via `useCallback` dependency
 - Loading state shown with `ActivityIndicator` during data fetch
-- Period toggle uses `TouchableOpacity` with active/inactive styles
+- Period selector uses `TouchableOpacity` with active/inactive styles
 
 ---
 
@@ -172,9 +236,9 @@ Pure React Native `View` components — no SVG/charting libraries. Each day is r
 | Technique            | Location                          | Benefit                          |
 |----------------------|-----------------------------------|----------------------------------|
 | `React.memo`         | `ToggleCard`                      | Prevents re-render on prop stability |
-| `useCallback`        | `handleToggle`, `handleSaveNote`, press handlers | Stable function references |
-| `useMemo`            | `today` string                    | Avoids re-computation on re-render |
-| Module-level const   | `CARDS` array                     | Zero allocation, never recreated |
+| `useCallback`        | `handleToggle`, `handleSaveNote`, press handlers, `loadData` | Stable function references |
+| `useMemo`            | `today` string, `greeting` string | Avoids re-computation on re-render |
+| Module-level const   | `CARDS` array, `PERIODS` array    | Zero allocation, never recreated |
 
 ### Database Optimization
 | Technique            | Benefit                          |
@@ -186,7 +250,7 @@ Pure React Native `View` components — no SVG/charting libraries. Each day is r
 
 ### Asset Optimization
 - `@expo/vector-icons` only — no external PNG/JPEG images
-- Dark theme reduces OLED power draw
+- Light theme with pure white surfaces and minimal shadows reduces GPU overdraw
 - No complex animations — only native-driven spring transitions
 - No background threads or polling loops
 

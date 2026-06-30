@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { initDatabase } from '../services/db';
-import { Colors, FontSize, Spacing } from '../constants/theme';
+import { Colors, FontSize, Spacing, BorderRadius } from '../constants/theme';
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
@@ -40,7 +40,7 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <Tabs
         screenOptions={{
           headerShown: false,
@@ -48,15 +48,16 @@ export default function RootLayout() {
             backgroundColor: Colors.tabBar,
             borderTopColor: Colors.tabBarBorder,
             borderTopWidth: 1,
-            height: 60,
-            paddingBottom: 8,
-            paddingTop: 6,
+            height: 64,
+            paddingBottom: 10,
+            paddingTop: 8,
           },
           tabBarActiveTintColor: Colors.tabActive,
           tabBarInactiveTintColor: Colors.tabInactive,
           tabBarLabelStyle: {
             fontSize: FontSize.xs,
             fontWeight: '600',
+            letterSpacing: 0.3,
           },
         }}
       >

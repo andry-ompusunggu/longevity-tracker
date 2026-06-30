@@ -1,167 +1,77 @@
-# Longevity & Functional Health Tracker
+# Longevity Tracker
 
-A lightweight, offline-first React Native (Expo) mobile app for tracking daily longevity habits. Built to combat biological decline in old age — sarcopenia (muscle loss), osteopenia (bone density loss), and cognitive/nerve decline — through simple binary check-ins and cumulative compliance tracking.
-
-> **Philosophy:** Minimum friction, maximum consistency. No calorie counting, no gram precision, no punitive streaks — just a daily Yes/No check-in on the three pillars of longevity, with positive psychology through percentage-based compliance.
-
----
+A minimalist, offline-first React Native app for tracking three daily longevity essentials: **Muscle & Bone**, **Nutrient Window**, and **Brain & Nerve**. Built with Expo and styled in a Modern Public Transit UI aesthetic.
 
 ## Features
 
-### Dashboard — The Daily Execution Wheel
-- **Big Three Checklist** — Three high-contrast toggle cards:
-  1. **Muscle & Bone Stimulus** — Strength training & impact work defense
-  2. **Nutrient Window & Protein** — Intermittent fasting adherence & metabolic health
-  3. **Brain & Nerve Sharpness** — Cognitive stimulation & learning
-- **Weekly Compliance Badge** — Cumulative percentage displayed prominently in the header
-- **Quick Note** — Optional short text log (max 100 characters) with save button
+- **Daily Check-in** — Tap to toggle each of the Big Three pillars. Instant optimistic UI updates with async SQLite persistence.
+- **Backdate Logging** — Navigate to past dates using arrow controls to fill in missed days. A "Today" button jumps back to the current date.
+- **Quick Notes** — Jot down how you're feeling each day. Saved locally with a single tap.
+- **Compliance Tracking** — See your weekly compliance percentage at a glance on the dashboard.
+- **Rich Analytics** — View your compliance trends over 7, 30, 60, 90, 180, or 365 days. Single main card clearly shows your selected period's rate with compact 7-day and 30-day reference stats.
+- **Smart Bar Chart** — Clean day-by-day breakdown with auto-spaced labels (day names for short periods, date format for longer ranges). Horizontally scrollable for extended periods.
+- **Database Export** — One-tap export of your SQLite database via the system share sheet. Copy to Files, email it, or send to your laptop for deeper analysis with any SQLite browser.
+- **Fully Offline** — Zero network requests. All data stays on your device in SQLite.
+- **Lightweight** — No charting libraries, no SVG, no heavy dependencies. Pure React Native views.
 
-### Analytics — The Engineer's Fuel
-- **7-Day & 30-Day Compliance** — Summary cards with progress bars
-- **Daily Breakdown** — Lightweight stacked bar chart (pure View-based, no heavy charting libraries)
-- **Period Toggle** — Switch between 7-day and 30-day views
+## Design
 
-### Performance Optimizations
-- **Offline-First** — SQLite local storage, zero background processes
-- **Indexed Queries** — `date` column indexed for fast range lookups
-- **Render Optimized** — `React.memo`, `useCallback`, `useMemo` throughout
-- **Lightweight Assets** — `@expo/vector-icons` only, no heavy images or animations
-- **Dark Theme** — AMOLED-friendly dark palette to save battery on OLED screens
-- **Battery Friendly** — No complex looping animations or heavy graphical computation
+The UI follows a **Modern Public Transit** aesthetic: ultra-clean, monochromatic high-contrast palette with:
 
----
+- Light gray canvas (`#F4F4F6`) with pure white card surfaces (`#FFFFFF`)
+- Deep charcoal text (`#1A1A1A`) for maximum readability
+- Highly rounded card corners (28px) with soft drop shadows
+- Capsule-shaped buttons and inputs
+- Thin geometric line icons (Ionicons)
+- Three transit-line accent colors for the Big Three (red, green, teal)
 
 ## Tech Stack
 
-| Layer        | Technology                          |
-|-------------|--------------------------------------|
-| Framework   | React Native with Expo (Managed)    |
-| Routing     | Expo Router (file-based)            |
-| Storage     | Expo-SQLite (WAL mode)              |
-| Icons       | @expo/vector-icons (Ionicons)       |
-| Language    | TypeScript (strict mode)            |
-| Navigation  | Bottom Tab Navigator (2 tabs)       |
+| Layer        | Technology                      |
+|-------------|---------------------------------|
+| Framework   | React Native via Expo           |
+| Routing     | Expo Router (file-based)        |
+| Database    | SQLite via `expo-sqlite`        |
+| Icons       | Ionicons via `@expo/vector-icons` |
+| File Export | `expo-file-system` + `expo-sharing` |
+| Language    | TypeScript (strict mode)        |
 
----
-
-## Prerequisites
-
-- **Node.js** >= 18 (tested with v20.20.2)
-- **npm** or **pnpm** (tested with npm 10.8.2)
-- **Expo Go** app installed on your Android/iOS device
-- **VS Code** (or your preferred editor)
-
-> **Note:** No Android Studio emulator required. All development runs via Metro Bundler on your laptop and executes physically on the device via Expo Go.
-
----
-
-## Setup & Installation
-
-### 1. Clone and install dependencies
+## Getting Started
 
 ```bash
-cd longevity-tracker
+# Install dependencies
 npm install
-```
 
-### 2. Start the development server
-
-```bash
+# Start the Expo dev server
 npx expo start
+
+# Run on Android
+npx expo start --android
+
+# Run on iOS
+npx expo start --ios
 ```
-
-### 3. Run on your device
-
-- **Android:** Scan the QR code with the **Expo Go** app (available on Google Play Store)
-- **iOS:** Scan the QR code with the **Camera** app → tap the notification banner
-- Ensure your phone and laptop are on the same Wi-Fi network
-
-### 4. (Optional) Run on web
-
-```bash
-npx expo start --web
-```
-
-> The web variant is available for quick prototyping, but the app is designed and optimized for mobile.
-
----
 
 ## Project Structure
 
 ```
 longevity-tracker/
-├── app/
-│   ├── _layout.tsx       # Root layout — DB init, tab navigation
-│   ├── index.tsx          # Dashboard — Big Three toggle cards + Quick Note
-│   └── analytics.tsx      # Analytics — compliance rates + daily bar chart
-├── services/
-│   └── db.ts              # SQLite service — init, upsert, toggle, compliance
+├── app/                    # Expo Router screens
+│   ├── _layout.tsx         # Root layout + tab navigator
+│   ├── index.tsx           # Dashboard screen (with backdate support)
+│   └── analytics.tsx       # Analytics screen (with export)
 ├── constants/
-│   └── theme.ts           # Dark theme colors, spacing, typography
-├── assets/                # App icons (placeholder)
-├── app.json               # Expo configuration
-├── package.json           # Dependencies and scripts
-├── tsconfig.json          # TypeScript strict mode config
-├── index.ts               # Entry point (expo-router/entry)
-└── ARCHITECTURE.md        # Architecture documentation
+│   └── theme.ts            # Design tokens (colors, spacing, typography)
+├── services/
+│   └── db.ts               # SQLite database layer + export path
+├── index.ts                # Entry point
+├── app.json                # Expo configuration
+└── package.json            # Dependencies
 ```
 
----
+## Privacy
 
-## Database Schema
-
-Single table `daily_logs` in `longevity.db` (SQLite):
-
-| Column             | Type    | Description                              |
-|--------------------|---------|------------------------------------------|
-| `id`               | INTEGER | Primary key, auto-increment              |
-| `date`             | TEXT    | YYYY-MM-DD format, **UNIQUE, INDEXED**   |
-| `muscle_bone`      | INTEGER | 0 or 1 — muscle & bone stimulation       |
-| `fasting_nutrition`| INTEGER | 0 or 1 — intermittent fasting adherence   |
-| `brain_cognitive`  | INTEGER | 0 or 1 — cognitive stimulation           |
-| `notes`            | TEXT    | Optional short text log (max 100 chars)  |
-| `created_at`       | DATETIME| Default: CURRENT_TIMESTAMP               |
-
-**Compliance Formula:** `(Total Approved Actions / Number of Days × 3) × 100%`
-
----
-
-## Usage Guide
-
-### Daily Check-in
-1. Open the app → **Dashboard** tab opens by default
-2. Tap each of the **Big Three** cards to mark them as completed (✓)
-3. The **Weekly Compliance %** updates instantly in the header
-4. (Optional) Write a quick note and tap **Save**
-
-### View Trends
-1. Tap the **Analytics** tab at the bottom
-2. View 7-Day and 30-Day compliance summary cards
-3. Toggle between **7 Days** and **30 Days** to see daily breakdowns
-4. Each day's bar shows which of the three pillars were completed
-
----
-
-## Scripts
-
-| Command               | Description                          |
-|-----------------------|--------------------------------------|
-| `npm start`           | Start Expo development server        |
-| `npx expo start --android` | Start and open in Expo Go (Android) |
-| `npx expo start --ios`     | Start and open in Expo Go (iOS)    |
-| `npx expo start --web`     | Start and open in browser          |
-| `npx tsc --noEmit`    | Run TypeScript type-checking         |
-
----
-
-## Performance Targets
-
-- **Cold start:** < 1 second on Infinix Note 50 Pro
-- **Bundle size:** Optimized (no heavy charting libs, no PNG/JPG assets)
-- **RAM usage:** Minimal — single SQLite connection, no background processes
-- **Battery:** Dark theme reduces OLED power draw; no polling loops
-
----
+100% private. All data is stored locally in SQLite and never leaves your device. No accounts, no cloud sync, no tracking. The export feature copies your database to a temporary file for sharing — you control where it goes.
 
 ## License
 

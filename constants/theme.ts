@@ -1,39 +1,41 @@
 export const Colors = {
   // Backgrounds
-  bg: '#0D1117',
-  bgCard: '#161B22',
-  bgCardActive: '#1C2333',
-  bgInput: '#0D1117',
+  bg: '#F4F4F6',             // Soft light-gray canvas
+  bgCard: '#FFFFFF',          // Pure white surfaces
 
   // Text
-  textPrimary: '#F0F6FC',
-  textSecondary: '#8B949E',
-  textMuted: '#484F58',
+  textPrimary: '#1A1A1A',     // Deep charcoal (near-black)
+  textSecondary: '#6B7280',   // Medium gray
+  textMuted: '#9CA3AF',       // Light gray
+  textInverse: '#FFFFFF',     // White text on dark bg
 
-  // Accent colors for the Big Three
-  muscle: '#FF6B6B',
-  muscleBg: 'rgba(255, 107, 107, 0.12)',
-  muscleBorder: 'rgba(255, 107, 107, 0.3)',
+  // Accent colors for the Big Three (transit-line inspired)
+  muscle: '#EF4444',
+  muscleBg: '#FEF2F2',
+  muscleBorder: '#FECACA',
 
-  fasting: '#51CF66',
-  fastingBg: 'rgba(81, 207, 102, 0.12)',
-  fastingBorder: 'rgba(81, 207, 102, 0.3)',
+  fasting: '#10B981',
+  fastingBg: '#ECFDF5',
+  fastingBorder: '#A7F3D0',
 
-  brain: '#4ECDC4',
-  brainBg: 'rgba(78, 205, 196, 0.12)',
-  brainBorder: 'rgba(78, 205, 196, 0.3)',
+  brain: '#06B6D4',
+  brainBg: '#ECFEFF',
+  brainBorder: '#A5F3FC',
 
   // UI colors
-  border: '#30363D',
-  success: '#3FB950',
-  warning: '#D29922',
-  danger: '#F85149',
+  border: '#E5E7EB',
+  success: '#10B981',
+  warning: '#F59E0B',
+  danger: '#EF4444',
+  achievement: '#F59E0B',   // Gold for overachievement (Muscle >100%)
+  achievementBorder: '#FCD34D', // Bright gold border
+  achievementBg: '#FFFBEB',  // Soft gold background
 
   // Tab bar
-  tabBar: '#0D1117',
-  tabBarBorder: '#21262D',
-  tabActive: '#F0F6FC',
-  tabInactive: '#484F58',
+  tabBar: '#FFFFFF',
+  tabBarBorder: '#E5E7EB',
+  tabActive: '#1A1A1A',
+  tabInactive: '#9CA3AF',
 } as const;
 
 export const Spacing = {
@@ -44,22 +46,26 @@ export const Spacing = {
   xl: 20,
   xxl: 24,
   xxxl: 32,
+  xxxxl: 40,
 } as const;
 
 export const FontSize = {
-  xs: 11,
-  sm: 13,
-  md: 15,
-  lg: 17,
-  xl: 20,
-  xxl: 28,
-  xxxl: 34,
+  xs: 12,
+  sm: 14,
+  md: 16,
+  lg: 18,
+  xl: 22,
+  xxl: 30,
+  xxxl: 40,
 } as const;
 
 export const BorderRadius = {
-  sm: 6,
-  md: 10,
+  sm: 8,
+  md: 12,
   lg: 16,
   xl: 20,
+  xxl: 24,
+  xxxl: 28,
+  xxxxl: 32,
   full: 9999,
 } as const;

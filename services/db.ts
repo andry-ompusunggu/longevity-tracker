@@ -1,5 +1,4 @@
 import * as SQLite from 'expo-sqlite';
-import { Platform } from 'react-native';
 
 export interface DailyLog {
   id?: number;
@@ -169,6 +168,49 @@ export async function getComplianceRate(daysBack: number): Promise<number> {
 }
 
 /**
+ * Calculate per-pillar compliance rates using the new formula:
+ *
+ * - Muscle & Bone:   actual_days / (ceil(daysBack/7) * 3)  → can exceed 1.0
+ * - Fasting/Nutrition: actual_days / daysBack                → capped at 1.0
+ * - Brain/Cognitive:  actual_days / daysBack                 → capped at 1.0
+ *
+ * Returns values as decimals (0.0 – 1.0+ for muscle).
+ */
+export async function getPerPillarCompliance(daysBack: number): Promise<{
+  muscle_bone: number;
+  fasting_nutrition: number;
+  brain_cognitive: number;
+}> {
+  const endDate = getTodayString();
+  const startDate = getDaysAgoString(daysBack - 1);
+  const logs = await getLogsInRange(startDate, endDate);
+
+  let muscleDays = 0;
+  let fastingDays = 0;
+  let brainDays = 0;
+
+  for (const log of logs) {
+    muscleDays += log.muscle_bone;
+    fastingDays += log.fasting_nutrition;
+    brainDays += log.brain_cognitive;
+  }
+
+  // Muscle & Bone: sweet spot = 3 days per week, scaled to period
+  const expectedMuscleDays = Math.ceil(daysBack / 7) * 3;
+  const muscleRate = expectedMuscleDays > 0 ? muscleDays / expectedMuscleDays : 0;
+
+  // Nutrient & Brain: simple fraction of total days, capped at 1.0
+  const fastingRate = daysBack > 0 ? Math.min(fastingDays / daysBack, 1) : 0;
+  const brainRate = daysBack > 0 ? Math.min(brainDays / daysBack, 1) : 0;
+
+  return {
+    muscle_bone: muscleRate,
+    fasting_nutrition: fastingRate,
+    brain_cognitive: brainRate,
+  };
+}
+
+/**
  * Get detailed compliance breakdown per day for the last N days.
  * Returns an array of objects with date and compliance fraction.
  */
@@ -242,6 +284,25 @@ export function getDaysAgoString(daysAgo: number): string {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
   return formatDate(d);
+}
+
+/**
+ * Shift a YYYY-MM-DD string by N days (positive = forward, negative = backward).
+ */
+export function shiftDate(dateStr: string, offset: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + offset);
+  return formatDate(date);
+}
+
+/**
+ * Get the full filesystem path to the SQLite database file.
+ * Used for export/sharing.
+ */
+export function getDatabasePath(): string {
+  const database = getDb();
+  return database.databasePath;
 }
 
 /**

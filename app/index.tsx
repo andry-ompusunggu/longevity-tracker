@@ -7,12 +7,14 @@ import {
   TextInput,
   ScrollView,
   Animated,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getLogByDate,
   getTodayString,
+  shiftDate,
   formatDateHuman,
   getComplianceRate,
   toggleField,
@@ -27,18 +29,20 @@ interface ToggleCardConfig {
   label: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
+  iconActive: keyof typeof Ionicons.glyphMap;
   color: string;
   colorBg: string;
   colorBorder: string;
 }
 
-// Module-level constant — no need for useMemo inside component
+// Module-level constant — never recreated
 const CARDS: ToggleCardConfig[] = [
   {
     key: 'muscle_bone',
     label: 'Muscle & Bone',
     subtitle: 'Strength training & impact work',
     icon: 'fitness-outline',
+    iconActive: 'fitness',
     color: Colors.muscle,
     colorBg: Colors.muscleBg,
     colorBorder: Colors.muscleBorder,
@@ -47,7 +51,8 @@ const CARDS: ToggleCardConfig[] = [
     key: 'fasting_nutrition',
     label: 'Nutrient Window',
     subtitle: 'IF adherence & protein intake',
-    icon: 'restaurant-outline',
+    icon: 'nutrition-outline',
+    iconActive: 'nutrition',
     color: Colors.fasting,
     colorBg: Colors.fastingBg,
     colorBorder: Colors.fastingBorder,
@@ -56,17 +61,48 @@ const CARDS: ToggleCardConfig[] = [
     key: 'brain_cognitive',
     label: 'Brain & Nerve',
     subtitle: 'Cognitive stimulation & learning',
-    icon: 'bulb-outline',
+    icon: 'school-outline',
+    iconActive: 'school',
     color: Colors.brain,
     colorBg: Colors.brainBg,
     colorBorder: Colors.brainBorder,
   },
 ];
 
+// ─── Boundary Rules Info Text ────────────────────────────────────────────
+
+const INFO_TEXT: Record<string, { title: string; yes: string; no: string; note?: string }> = {
+  muscle_bone: {
+    title: '💪 Muscle & Bone — Rule of Thumb',
+    yes: 'Latihan beban mekanis (dumbbell rumah, push-up, squat) sampai otot terasa fatigue.\n\n— Atau —\nHari istirahat (rest) dengan target protein harian + kalsium (susu) terpenuhi untuk pemulihan sintesis otot.',
+    no: 'Hanya duduk seharian atau sekadar jalan kaki santai di permukaan datar (tidak merangsang pertumbuhan tulang/otot).',
+  },
+  fasting_nutrition: {
+    title: '🥗 Nutrient Window — Net Positive Rule',
+    yes: 'Jendela puasa (Intermittent Fasting) terjaga dan nutrisi dasar aman.',
+    no: 'Jendela puasa berantakan total (makan seharian tanpa henti) atau seharian penuh hanya makan makanan sampah tanpa protein.',
+    note: 'Jika puasa & protein aman tapi ada khilaf makan gula sedikit, tetap klik YA. Wajib catat khilafnya di Quick Note!',
+  },
+  brain_cognitive: {
+    title: '🧠 Brain & Nerve — Boundary',
+    yes: 'Otak keluar dari mode autopilot.\nBelajar logika coding baru yang rumit, debat arsitektur sistem, atau membaca buku sastra/klasik yang butuh fokus tinggi.',
+    no: 'Hanya melakukan kerjaan mekanis, copy-paste code tanpa berpikir, atau pasif scroll media sosial.',
+  },
+};
+
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good Morning';
+  if (hour < 17) return 'Good Afternoon';
+  return 'Good Evening';
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
   const today = useMemo(() => getTodayString(), []);
+  const greeting = useMemo(() => getGreeting(), []);
+  const [selectedDate, setSelectedDate] = useState(today);
   const [toggles, setToggles] = useState({
     muscle_bone: 0,
     fasting_nutrition: 0,
@@ -75,13 +111,18 @@ export default function DashboardScreen() {
   const [notes, setNotes] = useState('');
   const [compliance, setCompliance] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [infoPillar, setInfoPillar] = useState<string | null>(null);
 
-  // Load today's data on mount
+  const isToday = selectedDate === today;
+  const isPastDate = selectedDate < today;
+
+  // Load data for the selected date
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
         const [log, rate] = await Promise.all([
-          getLogByDate(today),
+          getLogByDate(selectedDate),
           getComplianceRate(7),
         ]);
         if (log) {
@@ -91,6 +132,10 @@ export default function DashboardScreen() {
             brain_cognitive: log.brain_cognitive,
           });
           setNotes(log.notes || '');
+        } else {
+          // Reset for empty dates
+          setToggles({ muscle_bone: 0, fasting_nutrition: 0, brain_cognitive: 0 });
+          setNotes('');
         }
         setCompliance(rate);
       } catch (err) {
@@ -99,24 +144,37 @@ export default function DashboardScreen() {
         setLoading(false);
       }
     })();
+  }, [selectedDate]);
+
+  // Date navigation
+  const goToPrevDay = useCallback(() => {
+    setSelectedDate((prev) => shiftDate(prev, -1));
+  }, []);
+
+  const goToNextDay = useCallback(() => {
+    setSelectedDate((prev) => {
+      const next = shiftDate(prev, 1);
+      return next > today ? prev : next; // Don't go beyond today
+    });
   }, [today]);
 
-  // Toggle handler with instant UI update + async DB sync
+  const goToToday = useCallback(() => {
+    setSelectedDate(today);
+  }, [today]);
+
+  // Toggle handler
   const handleToggle = useCallback(
     async (field: ToggleCardConfig['key']) => {
-      // Optimistic UI update
       setToggles((prev) => ({
         ...prev,
         [field]: prev[field] === 1 ? 0 : 1,
       }));
 
       try {
-        await toggleField(today, field);
-        // Refresh compliance after toggle
+        await toggleField(selectedDate, field);
         const rate = await getComplianceRate(7);
         setCompliance(rate);
       } catch (err) {
-        // Revert on failure
         setToggles((prev) => ({
           ...prev,
           [field]: prev[field] === 1 ? 0 : 1,
@@ -124,26 +182,34 @@ export default function DashboardScreen() {
         console.error('Toggle failed:', err);
       }
     },
-    [today]
+    [selectedDate]
   );
+
+  // Info modal handlers
+  const handleShowInfo = useCallback((pillar: string) => {
+    setInfoPillar(pillar);
+  }, []);
+
+  const handleHideInfo = useCallback(() => {
+    setInfoPillar(null);
+  }, []);
 
   // Save notes handler
   const handleSaveNote = useCallback(async () => {
     const trimmed = notes.trim().slice(0, 100);
     try {
-      await upsertLog(today, { notes: trimmed });
+      await upsertLog(selectedDate, { notes: trimmed });
     } catch (err) {
       console.error('Failed to save note:', err);
     }
-  }, [notes, today]);
+  }, [notes, selectedDate]);
 
-  // Display percentage
   const compliancePercent = Math.round(compliance * 100);
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingBox}>
+        <View style={styles.centerBox}>
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       </SafeAreaView>
@@ -160,9 +226,47 @@ export default function DashboardScreen() {
         {/* ── Header ──────────────────────────────────────────── */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <Text style={styles.greeting}>Today's Check-in</Text>
-            <Text style={styles.dateText}>{formatDateHuman(today)}</Text>
+            {/* Date navigation row */}
+            <View style={styles.dateNavRow}>
+              <TouchableOpacity
+                onPress={goToPrevDay}
+                style={styles.dateArrow}
+                activeOpacity={0.6}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="chevron-back" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+
+              <View style={styles.dateCenter}>
+                <Text style={styles.greetingLabel}>
+                  {isToday ? greeting : 'Viewing'}
+                </Text>
+                <Text style={styles.dateText}>{formatDateHuman(selectedDate)}</Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={goToNextDay}
+                style={styles.dateArrow}
+                activeOpacity={0.6}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons
+                  name="chevron-forward"
+                  size={22}
+                  color={isToday ? Colors.textMuted : Colors.textSecondary}
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* "Today" button when viewing past dates */}
+            {isPastDate && (
+              <TouchableOpacity style={styles.todayButton} onPress={goToToday} activeOpacity={0.7}>
+                <Ionicons name="today-outline" size={14} color={Colors.textPrimary} />
+                <Text style={styles.todayButtonText}>Today</Text>
+              </TouchableOpacity>
+            )}
           </View>
+
           <View style={styles.complianceBadge}>
             <Text style={styles.complianceLabel}>Weekly</Text>
             <Text
@@ -185,16 +289,17 @@ export default function DashboardScreen() {
               config={card}
               active={toggles[card.key] === 1}
               onPress={() => handleToggle(card.key)}
+              onInfoPress={() => handleShowInfo(card.key)}
             />
           ))}
         </View>
 
         {/* ── Quick Note ──────────────────────────────────────── */}
         <Text style={styles.sectionTitle}>Quick Note</Text>
-        <View style={styles.noteContainer}>
+        <View style={styles.noteCard}>
           <TextInput
             style={styles.noteInput}
-            placeholder="How are you feeling today? (max 100 chars)"
+            placeholder="How are you feeling today?"
             placeholderTextColor={Colors.textMuted}
             value={notes}
             onChangeText={setNotes}
@@ -205,13 +310,50 @@ export default function DashboardScreen() {
           <TouchableOpacity
             style={styles.noteSaveButton}
             onPress={handleSaveNote}
-            activeOpacity={0.7}
+            activeOpacity={0.8}
           >
-            <Ionicons name="save-outline" size={18} color={Colors.textPrimary} />
-            <Text style={styles.noteSaveText}>Save</Text>
+            <Ionicons name="save-outline" size={18} color={Colors.textInverse} />
+            <Text style={styles.noteSaveText}>Save Note</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* ── Info Modal ─────────────────────────────────────── */}
+      <Modal
+        visible={infoPillar !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={handleHideInfo}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {infoPillar && INFO_TEXT[infoPillar] && (
+              <>
+                <Text style={styles.modalTitle}>
+                  {INFO_TEXT[infoPillar].title}
+                </Text>
+
+                <Text style={styles.modalSectionLabel}>Klik YA (●) jika:</Text>
+                <Text style={styles.modalBody}>{INFO_TEXT[infoPillar].yes}</Text>
+
+                <Text style={styles.modalSectionLabel}>Biarkan TIDAK (○) jika:</Text>
+                <Text style={styles.modalBody}>{INFO_TEXT[infoPillar].no}</Text>
+
+                {INFO_TEXT[infoPillar].note && (
+                  <Text style={styles.modalNote}>{INFO_TEXT[infoPillar].note}</Text>
+                )}
+              </>
+            )}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={handleHideInfo}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modalCloseText}>Mengerti</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -222,10 +364,12 @@ const ToggleCard = React.memo(function ToggleCard({
   config,
   active,
   onPress,
+  onInfoPress,
 }: {
   config: ToggleCardConfig;
   active: boolean;
   onPress: () => void;
+  onInfoPress: () => void;
 }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -248,7 +392,13 @@ const ToggleCard = React.memo(function ToggleCard({
   }, [scaleAnim]);
 
   return (
-    <Animated.View style={[styles.cardWrapper, { transform: [{ scale: scaleAnim }] }]}>
+    <Animated.View
+      style={[
+        styles.cardWrapper,
+        { transform: [{ scale: scaleAnim }] },
+        active && styles.cardShadowActive,
+      ]}
+    >
       <TouchableOpacity
         style={[
           styles.card,
@@ -265,35 +415,59 @@ const ToggleCard = React.memo(function ToggleCard({
         <View style={styles.cardLeft}>
           <View
             style={[
-              styles.cardIcon,
-              {
-                backgroundColor: active ? config.color : 'transparent',
-                borderColor: config.color,
-              },
+              styles.cardIconBox,
+              { backgroundColor: active ? config.color : '#F3F4F6' },
             ]}
           >
             <Ionicons
-              name={config.icon}
+              name={active ? config.iconActive : config.icon}
               size={22}
-              color={active ? Colors.bg : config.color}
+              color={active ? Colors.textInverse : Colors.textMuted}
             />
           </View>
           <View style={styles.cardText}>
-            <Text style={[styles.cardLabel, active && { color: config.color }]}>
-              {config.label}
+            <View style={styles.cardLabelRow}>
+              <Text
+                style={[
+                  styles.cardLabel,
+                  active && { color: config.color },
+                ]}
+              >
+                {config.label}
+              </Text>
+              <TouchableOpacity
+                onPress={onInfoPress}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.5}
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={18}
+                  color={active ? config.color : Colors.textMuted}
+                />
+              </TouchableOpacity>
+            </View>
+            <Text
+              style={[
+                styles.cardSubtitle,
+                active && { color: Colors.textSecondary },
+              ]}
+            >
+              {config.subtitle}
             </Text>
-            <Text style={styles.cardSubtitle}>{config.subtitle}</Text>
           </View>
         </View>
         <View
           style={[
-            styles.toggleDot,
-            {
-              backgroundColor: active ? config.color : Colors.textMuted,
-            },
+            styles.toggleBadge,
+            active && { backgroundColor: config.color, borderColor: config.color },
           ]}
         >
-          {active && <Ionicons name="checkmark" size={16} color={Colors.bg} />}
+          {active ? (
+            <Ionicons name="checkmark" size={18} color={Colors.textInverse} />
+          ) : (
+            <View style={styles.toggleEmpty} />
+          )}
         </View>
       </TouchableOpacity>
     </Animated.View>
@@ -308,10 +482,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bg,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.xxxl,
+    paddingTop: Spacing.sm,
   },
-  loadingBox: {
+  centerBox: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -321,7 +496,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
   },
 
-  // Header
+  // ── Header ──────────────────────────────────────────────────
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -330,43 +505,85 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.xxl,
   },
   headerLeft: {
-    gap: Spacing.xs,
+    gap: Spacing.sm,
   },
-  greeting: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+  dateNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
   },
-  dateText: {
-    fontSize: FontSize.xxl,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  complianceBadge: {
+  dateArrow: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.full,
     backgroundColor: Colors.bgCard,
-    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: Colors.border,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    alignItems: 'center',
-    minWidth: 72,
   },
-  complianceLabel: {
+  dateCenter: {
+    alignItems: 'center',
+    gap: 2,
+    minWidth: 160,
+  },
+  greetingLabel: {
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
     fontWeight: '600',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 1.2,
+  },
+  dateText: {
+    fontSize: FontSize.xl,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    letterSpacing: -0.3,
+  },
+  todayButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.bgCard,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  todayButtonText: {
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  complianceBadge: {
+    backgroundColor: Colors.bgCard,
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+    minWidth: 80,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  complianceLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
   complianceValue: {
     fontSize: FontSize.xxl,
     fontWeight: '800',
+    letterSpacing: -0.5,
   },
 
-  // Section Title
+  // ── Section Title ────────────────────────────────────────────
   sectionTitle: {
     fontSize: FontSize.sm,
     fontWeight: '600',
@@ -374,23 +591,32 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: Spacing.md,
+    marginLeft: Spacing.xs,
   },
 
-  // Cards
+  // ── Toggle Cards ──────────────────────────────────────────────
   cardsContainer: {
     gap: Spacing.md,
     marginBottom: Spacing.xxl,
   },
   cardWrapper: {
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xxxl,
+  },
+  cardShadowActive: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
+    paddingVertical: Spacing.xl,
+    borderRadius: BorderRadius.xxxl,
+    borderWidth: 1.5,
   },
   cardLeft: {
     flexDirection: 'row',
@@ -398,65 +624,139 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     flex: 1,
   },
-  cardIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.md,
+  cardIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
   },
   cardText: {
     flex: 1,
     gap: 2,
   },
+  cardLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   cardLabel: {
     fontSize: FontSize.lg,
     fontWeight: '700',
     color: Colors.textPrimary,
+    letterSpacing: -0.3,
   },
   cardSubtitle: {
     fontSize: FontSize.sm,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
-  toggleDot: {
-    width: 28,
-    height: 28,
+  toggleBadge: {
+    width: 32,
+    height: 32,
     borderRadius: BorderRadius.full,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.border,
+  },
+  toggleEmpty: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: Colors.border,
   },
 
-  // Note Input
-  noteContainer: {
+  // ── Note Input ────────────────────────────────────────────────
+  noteCard: {
     backgroundColor: Colors.bgCard,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
+    borderRadius: BorderRadius.xxxl,
+    padding: Spacing.xl,
+    gap: Spacing.lg,
+    borderWidth: 1.5,
     borderColor: Colors.border,
-    padding: Spacing.md,
-    gap: Spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   noteInput: {
     color: Colors.textPrimary,
     fontSize: FontSize.md,
-    minHeight: 60,
+    minHeight: 70,
     padding: 0,
+    lineHeight: 22,
   },
   noteSaveButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.bg,
-    borderRadius: BorderRadius.sm,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    alignSelf: 'flex-end',
-    borderWidth: 1,
-    borderColor: Colors.border,
+    gap: Spacing.sm,
+    backgroundColor: Colors.textPrimary,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xxl,
+    alignSelf: 'flex-start',
   },
   noteSaveText: {
+    color: Colors.textInverse,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+  },
+
+  // ── Info Modal ──────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xxl,
+  },
+  modalContent: {
+    backgroundColor: Colors.bgCard,
+    borderRadius: BorderRadius.xxxl,
+    padding: Spacing.xxl,
+    maxWidth: 400,
+    width: '100%',
+    gap: Spacing.md,
+  },
+  modalTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '700',
     color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+    lineHeight: 24,
+  },
+  modalSectionLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginTop: Spacing.xs,
+  },
+  modalBody: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  modalNote: {
+    fontSize: FontSize.sm,
+    color: Colors.warning,
+    lineHeight: 20,
+    fontStyle: 'italic',
+    backgroundColor: Colors.warning + '15',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.xs,
+  },
+  modalCloseButton: {
+    backgroundColor: Colors.textPrimary,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    marginTop: Spacing.md,
+  },
+  modalCloseText: {
+    color: Colors.textInverse,
     fontSize: FontSize.sm,
     fontWeight: '600',
   },
