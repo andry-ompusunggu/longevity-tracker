@@ -30,7 +30,8 @@ longevity-tracker/          # Expo project root
 │   ├── index.tsx           # Dashboard screen (route: /)
 │   └── analytics.tsx       # Analytics screen (route: /analytics)
 ├── services/
-│   └── db.ts               # SQLite abstraction layer
+│   ├── db.ts               # SQLite abstraction layer
+│   └── notifications.ts    # Daily reminder at 21:00 via expo-notifications
 ├── constants/
 │   └── theme.ts            # Design tokens (colors, spacing, typography)
 ├── index.ts                # Entry point: loads expo-router
@@ -51,6 +52,10 @@ index.ts
             ├─ initDatabase() → opens SQLite connection
             │   ├─ CREATE TABLE IF NOT EXISTS daily_logs
             │   └─ CREATE INDEX IF NOT EXISTS idx_daily_logs_date
+            ├─ setupNotifications(21) → native OS scheduler
+            │   ├─ Create Android notification channel
+            │   ├─ Request POST_NOTIFICATIONS permission (Android 13+)
+            │   └─ Schedule DAILY trigger at 21:00 — zero background polling
             └─ Tabs Navigator
                  ├─ app/index.tsx (Dashboard)
                  └─ app/analytics.tsx (Analytics)
@@ -254,6 +259,13 @@ An "Export Database" button at the bottom of the screen copies the SQLite file t
 - No complex animations — only native-driven spring transitions
 - No background threads or polling loops
 
+### Notification Strategy
+- Uses Android `AlarmManager` / iOS `UNUserNotificationCenter` — the OS handles the trigger natively
+- `scheduleNotificationAsync` with `DAILY` trigger type — no JavaScript timers or background tasks
+- Permission requested gracefully on Android 13+ via `requestPermissionsAsync()`
+- If permission denied, reminder simply doesn't schedule — no app crash or repeated prompt
+- Cancel-before-schedule pattern prevents duplicate notifications across app restarts
+
 ---
 
 ## Dependency Map
@@ -268,6 +280,7 @@ expo (managed workflow)
 │   └── expo-linking
 │   └── expo-constants
 ├── expo-sqlite (local database)
+├── expo-notifications (local scheduling — no server)
 ├── expo-status-bar (status bar theming)
 ├── @expo/vector-icons (Ionicons)
 └── react-native (UI framework)
@@ -279,7 +292,7 @@ expo (managed workflow)
 
 ### Potential Extensions
 1. **Data Export** — Add a share/export feature to dump SQLite as JSON (pure client-side, no server)
-2. **Notifications** — Add expo-notifications for daily reminder without background polling
+2. **Notifications toggle** — Add UI toggle in settings to enable/disable the daily reminder
 3. **Backup** — File-based SQLite export to device storage or iCloud/Google Drive
 4. **Widget** — Android home screen widget showing today's check-in status
 

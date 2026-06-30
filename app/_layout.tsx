@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { initDatabase } from '../services/db';
+import { setupNotifications } from '../services/notifications';
 import { Colors, FontSize, Spacing, BorderRadius } from '../constants/theme';
 
 export default function RootLayout() {
@@ -12,7 +13,11 @@ export default function RootLayout() {
 
   useEffect(() => {
     initDatabase()
-      .then(() => setDbReady(true))
+      .then(() => {
+        setDbReady(true);
+        // Start daily reminder at 21:00 — no background polling, native OS scheduling
+        setupNotifications(21);
+      })
       .catch((err) => {
         console.error('Database init error:', err);
         setDbError(err instanceof Error ? err.message : 'Failed to initialize database');

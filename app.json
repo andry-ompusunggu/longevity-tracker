@@ -19,7 +19,10 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.longevity.tracker"
+      "package": "com.longevity.tracker",
+      "permissions": [
+        "NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -27,7 +30,20 @@
     "plugins": [
       "expo-router",
       "expo-sqlite",
-      "expo-font"
-    ]
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "color": "#1A1A1A"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d01eca62-d820-4b34-b316-4eaaf3a3b4b3"
+      }
+    },
+    "owner": "insectdie"
   }
 }
