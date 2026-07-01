@@ -328,6 +328,21 @@ export async function getDailyBreakdown(daysBack: number): Promise<DayBreakdownR
 }
 
 /**
+ * Weekly summary data returned by getWeeklySummary().
+ */
+export interface WeeklySummary {
+  weekStart: string;       // YYYY-MM-DD (Monday)
+  weekEnd: string;         // YYYY-MM-DD (Sunday)
+  daysLogged: number;      // Number of days with at least one pillar checked
+  totalDays: number;        // 7
+  bds: number;              // BDS for the week (0-1)
+  pillars: Record<PillarKey, { days: number; rate: number; isSupercharged: boolean }>;
+  topPillar: PillarKey | null;     // Best performing pillar
+  lowPillar: PillarKey | null;     // Worst performing pillar
+  notes: string[];                 // Recent notes from the week
+}
+
+/**
  * Format a Date object to YYYY-MM-DD string.
  */
 export function formatDate(date: Date): string {
@@ -336,6 +351,125 @@ export function formatDate(date: Date): string {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/**
+ * Get the Monday of the current ISO week.
+ */
+function getMondayOfWeek(): string {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun, 1=Mon, ...
+  const diff = (day === 0 ? 6 : day - 1); // Days since Monday
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - diff);
+  return formatDate(monday);
+}
+
+/**
+ * Get the Sunday of the current ISO week.
+ */
+function getSundayOfWeek(): string {
+  const monday = getMondayOfWeek();
+  return shiftDate(monday, 6);
+}
+
+/**
+ * Get a detailed weekly summary for the current ISO week (Mon–Sun).
+ */
+export async function getWeeklySummary(): Promise<WeeklySummary> {
+  const weekStart = getMondayOfWeek();
+  const weekEnd = getSundayOfWeek();
+  const logs = await getLogsInRange(weekStart, weekEnd);
+
+  // Count days per pillar and total days with any activity
+  const pillarDays: Record<string, number> = {};
+  for (const p of ALL_PILLARS) {
+    pillarDays[p] = 0;
+  }
+  let daysLogged = 0;
+  const weekNotes: string[] = [];
+
+  for (const log of logs) {
+    let hasActivity = false;
+    for (const p of ALL_PILLARS) {
+      if (log[p] === 1) {
+        pillarDays[p] += 1;
+        hasActivity = true;
+      }
+    }
+    if (hasActivity) daysLogged++;
+    if (log.notes && log.notes.trim()) {
+      weekNotes.push(log.notes.trim());
+    }
+  }
+
+  // Calculate rates directly from ISO week logs (NOT sliding 7-day window)
+  // Using the same dynamic weekly targeting logic as getPerPillarCompliance
+  const weeks = 1; // ISO week is exactly 1 week
+  const totalWeekDays = 7;
+
+  const pillarEntries: Record<string, { days: number; rate: number; isSupercharged: boolean }> = {};
+  let bestPillar: PillarKey | null = null;
+  let bestRate = -1;
+  let worstPillar: PillarKey | null = null;
+  let worstRate = Infinity;
+  let bdsSum = 0;
+
+  for (const p of ALL_PILLARS) {
+    const target = PILLAR_TARGETS[p];
+    const actualDays = pillarDays[p];
+
+    let rate: number;
+    if (target.noCap) {
+      const expectedDays = weeks * target.perWeek;
+      rate = expectedDays > 0 ? actualDays / expectedDays : 0;
+    } else {
+      rate = totalWeekDays > 0 ? Math.min(actualDays / totalWeekDays, 1) : 0;
+    }
+
+    const isSupercharged = target.noCap && rate > 1;
+    pillarEntries[p] = {
+      days: actualDays,
+      rate,
+      isSupercharged,
+    };
+
+    bdsSum += Math.min(rate, 1); // Cap each pillar at 1.0 for BDS
+
+    if (rate > bestRate) { bestRate = rate; bestPillar = p; }
+    if (rate < worstRate) { worstRate = rate; worstPillar = p; }
+  }
+
+  const bds = Math.min(bdsSum / ALL_PILLARS.length, 1);
+
+  return {
+    weekStart,
+    weekEnd,
+    daysLogged,
+    totalDays: 7,
+    bds,
+    pillars: pillarEntries as Record<PillarKey, { days: number; rate: number; isSupercharged: boolean }>,
+    topPillar: bestPillar,
+    lowPillar: worstPillar,
+    notes: weekNotes.slice(-3), // Last 3 notes
+  };
+}
+
+/**
+ * Get a human-readable suggestion for the weekly focus.
+ */
+export function getWeeklyFocusSuggestion(lowPillar: PillarKey | null): string {
+  const suggestions: Record<PillarKey, string> = {
+    muscle_bone: '🏋️ Tambah 1 sesi dumbbell minggu depan — otot butuh stimulus 3x/minggu!',
+    vo2_heart: '🫀 Coba HIIT 5 menit tiap pagi — naikin VO₂ max itu kunci umur panjang!',
+    fasting_food: '🥗 Fokus jaga jendela puasa 17:7 dan protein di tiap meal minggu depan.',
+    sleep_circadian: '☀️ Prioritaskan sinar matahari pagi + matikan gadget 1 jam sebelum tidur.',
+    brain_cognitive: '🧠 Jadwalkan 30 menit deep reading tiap hari — no distractions!',
+  };
+  if (!lowPillar) return 'Lanjutkan konsistensimu minggu depan! 💪';
+  return suggestions[lowPillar];
+}
+
+// ─── Existing helpers unchanged below ────────────────────────────────
 
 /**
  * Get today's date as YYYY-MM-DD string.

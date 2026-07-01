@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { initDatabase } from '../services/db';
-import { setupNotifications } from '../services/notifications';
+import { setupNotifications, setupWeeklyReview } from '../services/notifications';
 import { Colors, FontSize, Spacing, BorderRadius } from '../constants/theme';
 
 export default function RootLayout() {
@@ -17,6 +17,8 @@ export default function RootLayout() {
         setDbReady(true);
         // Start daily reminder at 21:00 — no background polling, native OS scheduling
         setupNotifications(21);
+        // Start weekly review on Sunday 19:00
+        setupWeeklyReview(19);
       })
       .catch((err) => {
         console.error('Database init error:', err);

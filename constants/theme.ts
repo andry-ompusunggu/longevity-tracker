@@ -32,15 +32,19 @@ export const Colors = {
 
   // UI colors
   border: '#E5E7EB',
-  success: '#10B981',
-  warning: '#F59E0B',
-  danger: '#EF4444',
+  success: '#10B981',     // Green — good performance (≥70%)
+  warning: '#F59E0B',     // Amber — needs improvement (<70%)
+  danger: '#EF4444',      // Red — errors
 
-  // Supercharged overachievement (>100%)
-  supercharged: '#22C55E',           // Vibrant green for Muscle/VO2/Brain >100%
-  superchargedBorder: '#86EFAC',
-  superchargedBg: '#F0FDF4',
-  superchargedBadge: '#FBBF24',      // Gold accent ⚡
+  // Supercharged overachievement (>100%) — distinct AMBER/GOLD, NOT green
+  supercharged: '#D97706',           // Deep amber-gold for >100% pillars
+  superchargedBorder: '#FCD34D',     // Bright gold border
+  superchargedBg: '#FFFBEB',         // Soft gold background
+  superchargedBadge: '#F59E0B',      // Gold accent for ⚡ icon
+
+  // Pill indicator colors (for mini dots & daily breakdown pills)
+  pillInactive: '#D1D5DB',    // Gray — pillar not done
+  pillBg: '#F9FAFB',          // Pill background
 
   // Tab bar
   tabBar: '#FFFFFF',

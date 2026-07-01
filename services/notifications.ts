@@ -112,8 +112,57 @@ export async function cancelReminder(): Promise<void> {
 
   try {
     await Notifications.cancelScheduledNotificationAsync(NOTIFICATION_ID);
-    console.log('Daily reminder cancelled');
+    await Notifications.cancelScheduledNotificationAsync(WEEKLY_REVIEW_ID);
+    console.log('All reminders cancelled');
   } catch (err) {
     console.error('Failed to cancel reminder:', err);
+  }
+}
+
+// ─── Weekly Review Notification (Sunday 19:00) ───────────────────────────────
+
+const WEEKLY_CHANNEL_ID = 'weekly-review';
+const WEEKLY_REVIEW_ID = 'weekly-review-sun';
+
+/**
+ * Schedule a weekly review notification on Sunday at 19:00.
+ */
+export async function setupWeeklyReview(hour = 19): Promise<void> {
+  const Notifications = await loadNotifications();
+  if (!Notifications) return;
+
+  try {
+    // Create Android notification channel for weekly review
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync(WEEKLY_CHANNEL_ID, {
+        name: 'Weekly Review',
+        description: 'Your weekly longevity summary and focus suggestion',
+        importance: Notifications.AndroidImportance.HIGH,
+        enableVibrate: true,
+        vibrationPattern: [0, 200, 100, 200],
+        lightColor: '#D97706',
+      });
+    }
+
+    // Cancel existing to prevent duplicates, then schedule for Sunday (day 1 in Weekday format)
+    await Notifications.cancelScheduledNotificationAsync(WEEKLY_REVIEW_ID);
+    await Notifications.scheduleNotificationAsync({
+      identifier: WEEKLY_REVIEW_ID,
+      content: {
+        title: '📊 Weekly Review Ready!',
+        body: 'Minggu ini gimana? Buka app buat lihat skor BDS mingguan dan fokus mingdep!',
+        data: { screen: 'analytics' },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+        weekday: 1, // Sunday
+        hour,
+        minute: 0,
+      },
+    });
+
+    console.log(`✅ Weekly review scheduled for Sunday ${hour}:00`);
+  } catch (err) {
+    console.error('Failed to setup weekly review:', err);
   }
 }

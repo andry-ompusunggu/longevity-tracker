@@ -8,6 +8,7 @@ import {
   ScrollView,
   Animated,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +20,9 @@ import {
   getComplianceRate,
   toggleField,
   upsertLog,
+  getWeeklySummary,
+  getWeeklyFocusSuggestion,
+  WeeklySummary,
 } from '../services/db';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 
@@ -37,39 +41,28 @@ interface ToggleCardConfig {
   colorBorder: string;
 }
 
+// ─── Pillar Order (by natural user flow: Morning → Siang → Sore → Malam → Kapan Saja) ───
+
+const PILLAR_ORDER: PillarKey[] = [
+  'sleep_circadian',    // ☀️ Morning — check sunlight
+  'fasting_food',       // 🥗 Siang — tracking fast
+  'muscle_bone',        // 🏋️ Sore — workout
+  'vo2_heart',          // 🫀 Sore — HIIT
+  'brain_cognitive',    // 🧠 Kapan saja — deep focus
+];
+
+// Pillar info for progress dots
+const PILLAR_DOT_INFO: Record<PillarKey, { color: string; label: string }> = {
+  sleep_circadian: { color: Colors.sleep, label: 'Sleep' },
+  fasting_food: { color: Colors.fasting, label: 'Fasting' },
+  muscle_bone: { color: Colors.muscle, label: 'Muscle' },
+  vo2_heart: { color: Colors.vo2, label: 'VO₂' },
+  brain_cognitive: { color: Colors.brain, label: 'Brain' },
+};
+
 // Module-level constant — never recreated
-const CARDS: ToggleCardConfig[] = [
-  {
-    key: 'muscle_bone',
-    label: 'Muscle & Bone',
-    subtitle: 'Strength training & impact work',
-    icon: 'fitness-outline',
-    iconActive: 'fitness',
-    color: Colors.muscle,
-    colorBg: Colors.muscleBg,
-    colorBorder: Colors.muscleBorder,
-  },
-  {
-    key: 'vo2_heart',
-    label: 'Mitochondria & VO₂',
-    subtitle: 'HIIT / cardio burst 5-10 min',
-    icon: 'flame-outline',
-    iconActive: 'flame',
-    color: Colors.vo2,
-    colorBg: Colors.vo2Bg,
-    colorBorder: Colors.vo2Border,
-  },
-  {
-    key: 'fasting_food',
-    label: 'Fasting & Real Food',
-    subtitle: '17:7 IF + high-protein meal prep',
-    icon: 'nutrition-outline',
-    iconActive: 'nutrition',
-    color: Colors.fasting,
-    colorBg: Colors.fastingBg,
-    colorBorder: Colors.fastingBorder,
-  },
-  {
+const CARDS: Record<PillarKey, ToggleCardConfig> = {
+  sleep_circadian: {
     key: 'sleep_circadian',
     label: 'Sleep & Circadian',
     subtitle: 'Morning sun + no blue light PM',
@@ -79,7 +72,37 @@ const CARDS: ToggleCardConfig[] = [
     colorBg: Colors.sleepBg,
     colorBorder: Colors.sleepBorder,
   },
-  {
+  fasting_food: {
+    key: 'fasting_food',
+    label: 'Fasting & Real Food',
+    subtitle: '17:7 IF + high-protein meal prep',
+    icon: 'nutrition-outline',
+    iconActive: 'nutrition',
+    color: Colors.fasting,
+    colorBg: Colors.fastingBg,
+    colorBorder: Colors.fastingBorder,
+  },
+  muscle_bone: {
+    key: 'muscle_bone',
+    label: 'Muscle & Bone',
+    subtitle: 'Strength training & impact work',
+    icon: 'fitness-outline',
+    iconActive: 'fitness',
+    color: Colors.muscle,
+    colorBg: Colors.muscleBg,
+    colorBorder: Colors.muscleBorder,
+  },
+  vo2_heart: {
+    key: 'vo2_heart',
+    label: 'Mitochondria & VO₂',
+    subtitle: 'HIIT / cardio burst 5-10 min',
+    icon: 'flame-outline',
+    iconActive: 'flame',
+    color: Colors.vo2,
+    colorBg: Colors.vo2Bg,
+    colorBorder: Colors.vo2Border,
+  },
+  brain_cognitive: {
     key: 'brain_cognitive',
     label: 'Brain & Cognitive',
     subtitle: 'Deep focus work without distraction',
@@ -89,7 +112,7 @@ const CARDS: ToggleCardConfig[] = [
     colorBg: Colors.brainBg,
     colorBorder: Colors.brainBorder,
   },
-];
+};
 
 // ─── Boundary Rules Info Text ────────────────────────────────────────────
 
@@ -121,6 +144,14 @@ const INFO_TEXT: Record<string, { title: string; yes: string; no: string; note?:
   },
 };
 
+const PILLAR_LABELS: Record<PillarKey, string> = {
+  muscle_bone: 'Muscle & Bone',
+  vo2_heart: 'Mitochondria & VO₂',
+  fasting_food: 'Fasting & Real Food',
+  sleep_circadian: 'Sleep & Circadian',
+  brain_cognitive: 'Brain & Cognitive',
+};
+
 const getGreeting = () => {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good Morning';
@@ -143,20 +174,28 @@ export default function DashboardScreen() {
   });
   const [notes, setNotes] = useState('');
   const [compliance, setCompliance] = useState(0);
+  const [totalDaysData, setTotalDaysData] = useState(0);
   const [loading, setLoading] = useState(true);
   const [infoPillar, setInfoPillar] = useState<string | null>(null);
 
+  // Weekly review state
+  const [weeklySummary, setWeeklySummary] = useState<WeeklySummary | null>(null);
+  const [showWeeklyReview, setShowWeeklyReview] = useState(false);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
+
   const isToday = selectedDate === today;
   const isPastDate = selectedDate < today;
+  const hasFewDays = totalDaysData > 0 && totalDaysData < 3;
 
   // Load data for the selected date
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [log, rate] = await Promise.all([
+        const [log, rate, bds] = await Promise.all([
           getLogByDate(selectedDate),
           getComplianceRate(7),
+          getComplianceRate(selectedDate === today ? 7 : 1),
         ]);
         if (log) {
           setToggles({
@@ -168,7 +207,6 @@ export default function DashboardScreen() {
           });
           setNotes(log.notes || '');
         } else {
-          // Reset for empty dates
           setToggles({
             muscle_bone: 0,
             vo2_heart: 0,
@@ -179,6 +217,9 @@ export default function DashboardScreen() {
           setNotes('');
         }
         setCompliance(rate);
+        // Count how many days have data by checking if bds > 0 for 1-day period
+        const dayCount = await getLogByDate(today);
+        setTotalDaysData(dayCount ? 1 : 0);
       } catch (err) {
         console.error('Failed to load dashboard data:', err);
       } finally {
@@ -195,7 +236,7 @@ export default function DashboardScreen() {
   const goToNextDay = useCallback(() => {
     setSelectedDate((prev) => {
       const next = shiftDate(prev, 1);
-      return next > today ? prev : next; // Don't go beyond today
+      return next > today ? prev : next;
     });
   }, [today]);
 
@@ -233,6 +274,25 @@ export default function DashboardScreen() {
 
   const handleHideInfo = useCallback(() => {
     setInfoPillar(null);
+  }, []);
+
+  // Weekly Review handlers
+  const handleOpenWeeklyReview = useCallback(async () => {
+    setWeeklyLoading(true);
+    setShowWeeklyReview(true);
+    try {
+      const summary = await getWeeklySummary();
+      setWeeklySummary(summary);
+    } catch (err) {
+      console.error('Failed to load weekly summary:', err);
+    } finally {
+      setWeeklyLoading(false);
+    }
+  }, []);
+
+  const handleCloseWeeklyReview = useCallback(() => {
+    setShowWeeklyReview(false);
+    setWeeklySummary(null);
   }, []);
 
   // Save notes handler
@@ -306,33 +366,74 @@ export default function DashboardScreen() {
                 <Text style={styles.todayButtonText}>Today</Text>
               </TouchableOpacity>
             )}
+
+            {/* Grace period message for new users */}
+            {hasFewDays && isToday && (
+              <View style={styles.gracePeriodRow}>
+                <Ionicons name="information-circle-outline" size={14} color={Colors.warning} />
+                <Text style={styles.gracePeriodText}>Data baru — BDS akan akurat setelah 7 hari</Text>
+              </View>
+            )}
           </View>
 
-          <View style={styles.complianceBadge}>
-            <Text style={styles.complianceLabel}>Weekly</Text>
-            <Text
-              style={[
-                styles.complianceValue,
-                { color: compliancePercent >= 70 ? Colors.success : Colors.warning },
-              ]}
-            >
-              {compliancePercent}%
-            </Text>
+          {/* BDS Badge + Mini Progress Dots */}
+          <View style={styles.bdsContainer}>
+            <View style={styles.complianceBadge}>
+              <Text style={styles.complianceLabel}>Weekly</Text>
+              <Text
+                style={[
+                  styles.complianceValue,
+                  { color: compliancePercent >= 70 ? Colors.success : Colors.warning },
+                ]}
+              >
+                {compliancePercent}%
+              </Text>
+            </View>
+            {/* Mini progress dots — shows today's toggle status */}
+            {isToday && (
+              <View style={styles.progressDots}>
+                {PILLAR_ORDER.map((key) => (
+                  <View
+                    key={key}
+                    style={[
+                      styles.progressDot,
+                      {
+                        backgroundColor: toggles[key] === 1 ? PILLAR_DOT_INFO[key].color : Colors.pillInactive,
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
           </View>
         </View>
 
-        {/* ── Big Three Checklist ─────────────────────────────── */}
-        <Text style={styles.sectionTitle}>Daily Essentials</Text>
+        {/* ── Weekly Review Button ─────────────────────────────── */}
+        <TouchableOpacity
+          style={styles.weeklyReviewButton}
+          onPress={handleOpenWeeklyReview}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="calendar-outline" size={16} color={Colors.textPrimary} />
+          <Text style={styles.weeklyReviewButtonText}>Week in Review</Text>
+          <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} />
+        </TouchableOpacity>
+
+        {/* ── Today's 5 Pillars ────────────────────────────────── */}
+        <Text style={styles.sectionTitle}>Today's 5 Pillars</Text>
         <View style={styles.cardsContainer}>
-          {CARDS.map((card) => (
-            <ToggleCard
-              key={card.key}
-              config={card}
-              active={toggles[card.key] === 1}
-              onPress={() => handleToggle(card.key)}
-              onInfoPress={() => handleShowInfo(card.key)}
-            />
-          ))}
+          {PILLAR_ORDER.map((key) => {
+            const card = CARDS[key];
+            return (
+              <ToggleCard
+                key={card.key}
+                config={card}
+                active={toggles[card.key] === 1}
+                onPress={() => handleToggle(card.key)}
+                onInfoPress={() => handleShowInfo(card.key)}
+              />
+            );
+          })}
         </View>
 
         {/* ── Quick Note ──────────────────────────────────────── */}
@@ -395,11 +496,115 @@ export default function DashboardScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ── Weekly Review Modal ─────────────────────────────── */}
+      <Modal
+        visible={showWeeklyReview}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseWeeklyReview}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.weeklyModalContent]}>
+            {weeklyLoading ? (
+              <View style={styles.weeklyLoadingBox}>
+                <ActivityIndicator size="large" color={Colors.textPrimary} />
+                <Text style={styles.weeklyLoadingText}>Loading review...</Text>
+              </View>
+            ) : weeklySummary ? (
+              <>
+                <View style={styles.weeklyHeader}>
+                  <Ionicons name="calendar" size={22} color={Colors.textPrimary} />
+                  <Text style={styles.weeklyTitle}>Week in Review</Text>
+                  <TouchableOpacity onPress={handleCloseWeeklyReview} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <Ionicons name="close" size={24} color={Colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.weeklyDateRange}>
+                  {formatDateHuman(weeklySummary.weekStart)} — {formatDateHuman(weeklySummary.weekEnd)}
+                </Text>
+
+                {/* BDS Score */}
+                <View style={styles.weeklyBdsRow}>
+                  <Text style={styles.weeklyBdsLabel}>Biological Defense Score</Text>
+                  <Text style={[styles.weeklyBdsValue, { color: weeklySummary.bds >= 0.7 ? Colors.success : Colors.warning }]}>
+                    {Math.round(weeklySummary.bds * 100)}%
+                  </Text>
+                </View>
+
+                {/* Stats row */}
+                <View style={styles.weeklyStatsRow}>
+                  <View style={styles.weeklyStat}>
+                    <Text style={styles.weeklyStatValue}>{weeklySummary.daysLogged}/7</Text>
+                    <Text style={styles.weeklyStatLabel}>Days Active</Text>
+                  </View>
+                </View>
+
+                {/* Pillar Breakdown */}
+                <Text style={styles.weeklySectionLabel}>Pillar Breakdown</Text>
+                <View style={styles.weeklyPillarList}>
+                  {PILLAR_ORDER.map((key) => {
+                    const p = weeklySummary.pillars[key];
+                    if (!p) return null;
+                    const isSupercharged = p.isSupercharged;
+                    const color = isSupercharged ? Colors.supercharged : PILLAR_DOT_INFO[key].color;
+                    const pct = Math.round(p.rate * 100);
+
+                    return (
+                      <View key={key} style={styles.weeklyPillarRow}>
+                        <View style={[styles.weeklyPillarDot, { backgroundColor: color }]} />
+                        <Text style={[styles.weeklyPillarName, { color }]} numberOfLines={1}>
+                          {PILLAR_LABELS[key]}
+                        </Text>
+                        <Text style={[styles.weeklyPillarValue, { color }]}>
+                          {pct}%
+                          {isSupercharged ? ' ⚡' : ''}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* Focus Suggestion */}
+                {weeklySummary.lowPillar && (
+                  <View style={styles.weeklyFocusBox}>
+                    <Ionicons name="bulb-outline" size={18} color={Colors.superchargedBadge} />
+                    <Text style={styles.weeklyFocusText}>
+                      {getWeeklyFocusSuggestion(weeklySummary.lowPillar)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Recent notes */}
+                {weeklySummary.notes.length > 0 && (
+                  <View style={styles.weeklyNotesSection}>
+                    <Text style={styles.weeklySectionLabel}>Notes This Week</Text>
+                    {weeklySummary.notes.map((note, i) => (
+                      <Text key={i} style={styles.weeklyNoteItem}>• {note}</Text>
+                    ))}
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={handleCloseWeeklyReview}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.modalCloseText}>Great!</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <Text style={styles.weeklyErrorText}>Could not load weekly review.</Text>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-// ─── Toggle Card Component ──────────────────────────────────────────────────
+// ─── Toggle Card Component (COMPACT) ─────────────────────────────────────────
 
 const ToggleCard = React.memo(function ToggleCard({
   config,
@@ -462,7 +667,7 @@ const ToggleCard = React.memo(function ToggleCard({
           >
             <Ionicons
               name={active ? config.iconActive : config.icon}
-              size={22}
+              size={18}
               color={active ? Colors.textInverse : Colors.textMuted}
             />
           </View>
@@ -473,6 +678,7 @@ const ToggleCard = React.memo(function ToggleCard({
                   styles.cardLabel,
                   active && { color: config.color },
                 ]}
+                numberOfLines={1}
               >
                 {config.label}
               </Text>
@@ -483,7 +689,7 @@ const ToggleCard = React.memo(function ToggleCard({
               >
                 <Ionicons
                   name="information-circle-outline"
-                  size={18}
+                  size={16}
                   color={active ? config.color : Colors.textMuted}
                 />
               </TouchableOpacity>
@@ -493,6 +699,7 @@ const ToggleCard = React.memo(function ToggleCard({
                 styles.cardSubtitle,
                 active && { color: Colors.textSecondary },
               ]}
+              numberOfLines={1}
             >
               {config.subtitle}
             </Text>
@@ -505,7 +712,7 @@ const ToggleCard = React.memo(function ToggleCard({
           ]}
         >
           {active ? (
-            <Ionicons name="checkmark" size={18} color={Colors.textInverse} />
+            <Ionicons name="checkmark" size={16} color={Colors.textInverse} />
           ) : (
             <View style={styles.toggleEmpty} />
           )}
@@ -543,10 +750,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     paddingTop: Spacing.xl,
-    paddingBottom: Spacing.xxl,
+    paddingBottom: Spacing.lg,
   },
   headerLeft: {
     gap: Spacing.sm,
+    flex: 1,
   },
   dateNavRow: {
     flexDirection: 'row',
@@ -566,7 +774,7 @@ const styles = StyleSheet.create({
   dateCenter: {
     alignItems: 'center',
     gap: 2,
-    minWidth: 160,
+    minWidth: 140,
   },
   greetingLabel: {
     fontSize: FontSize.xs,
@@ -576,7 +784,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   dateText: {
-    fontSize: FontSize.xl,
+    fontSize: FontSize.lg,
     fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -0.3,
@@ -597,6 +805,24 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontWeight: '600',
     color: Colors.textPrimary,
+  },
+  gracePeriodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: Spacing.xs,
+  },
+  gracePeriodText: {
+    fontSize: 11,
+    color: Colors.warning,
+    fontWeight: '500',
+    fontStyle: 'italic',
+  },
+
+  // ── BDS Container + Progress Dots ─────────────────────────────
+  bdsContainer: {
+    alignItems: 'center',
+    gap: Spacing.sm,
   },
   complianceBadge: {
     backgroundColor: Colors.bgCard,
@@ -619,9 +845,40 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   complianceValue: {
-    fontSize: FontSize.xxl,
+    fontSize: FontSize.xl,
     fontWeight: '800',
     letterSpacing: -0.5,
+  },
+  progressDots: {
+    flexDirection: 'row',
+    gap: 5,
+    alignItems: 'center',
+  },
+  progressDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+
+  // ── Weekly Review Button ──────────────────────────────────────
+  weeklyReviewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.bgCard,
+    borderRadius: BorderRadius.xxl,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignSelf: 'flex-start',
+  },
+  weeklyReviewButtonText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    flex: 1,
   },
 
   // ── Section Title ────────────────────────────────────────────
@@ -635,13 +892,13 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.xs,
   },
 
-  // ── Toggle Cards ──────────────────────────────────────────────
+  // ── Toggle Cards (COMPACT) ────────────────────────────────────
   cardsContainer: {
-    gap: Spacing.md,
-    marginBottom: Spacing.xxl,
+    gap: Spacing.sm,
+    marginBottom: Spacing.xl,
   },
   cardWrapper: {
-    borderRadius: BorderRadius.xxxl,
+    borderRadius: BorderRadius.xxl,
   },
   cardShadowActive: {
     shadowColor: '#000',
@@ -654,9 +911,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: Spacing.lg,
-    paddingVertical: Spacing.xl,
-    borderRadius: BorderRadius.xxxl,
+    padding: Spacing.md,
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.xxl,
     borderWidth: 1.5,
   },
   cardLeft: {
@@ -666,9 +923,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: BorderRadius.lg,
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -682,18 +939,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cardLabel: {
-    fontSize: FontSize.lg,
+    fontSize: FontSize.md,
     fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -0.3,
+    flexShrink: 1,
   },
   cardSubtitle: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     color: Colors.textMuted,
   },
   toggleBadge: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     borderRadius: BorderRadius.full,
     alignItems: 'center',
     justifyContent: 'center',
@@ -701,18 +959,18 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   toggleEmpty: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: Colors.border,
   },
 
   // ── Note Input ────────────────────────────────────────────────
   noteCard: {
     backgroundColor: Colors.bgCard,
-    borderRadius: BorderRadius.xxxl,
+    borderRadius: BorderRadius.xxl,
     padding: Spacing.xl,
-    gap: Spacing.lg,
+    gap: Spacing.md,
     borderWidth: 1.5,
     borderColor: Colors.border,
     shadowColor: '#000',
@@ -723,10 +981,10 @@ const styles = StyleSheet.create({
   },
   noteInput: {
     color: Colors.textPrimary,
-    fontSize: FontSize.md,
-    minHeight: 70,
+    fontSize: FontSize.sm,
+    minHeight: 60,
     padding: 0,
-    lineHeight: 22,
+    lineHeight: 20,
   },
   noteSaveButton: {
     flexDirection: 'row',
@@ -735,8 +993,8 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     backgroundColor: Colors.textPrimary,
     borderRadius: BorderRadius.full,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
     alignSelf: 'flex-start',
   },
   noteSaveText: {
@@ -800,5 +1058,134 @@ const styles = StyleSheet.create({
     color: Colors.textInverse,
     fontSize: FontSize.sm,
     fontWeight: '600',
+  },
+
+  // ── Weekly Review Modal ──────────────────────────────────────
+  weeklyModalContent: {
+    maxHeight: '85%',
+  },
+  weeklyLoadingBox: {
+    paddingVertical: Spacing.xxxxl,
+    alignItems: 'center',
+    gap: Spacing.lg,
+  },
+  weeklyLoadingText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.md,
+  },
+  weeklyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  weeklyTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    flex: 1,
+  },
+  weeklyDateRange: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  weeklyBdsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.bg,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginTop: Spacing.sm,
+  },
+  weeklyBdsLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  weeklyBdsValue: {
+    fontSize: FontSize.xxl,
+    fontWeight: '800',
+  },
+  weeklyStatsRow: {
+    flexDirection: 'row',
+    gap: Spacing.lg,
+  },
+  weeklyStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  weeklyStatValue: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  weeklyStatLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '500',
+  },
+  weeklySectionLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginTop: Spacing.sm,
+  },
+  weeklyPillarList: {
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  weeklyPillarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  weeklyPillarDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  weeklyPillarName: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+  },
+  weeklyPillarValue: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  weeklyFocusBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    backgroundColor: Colors.superchargedBg,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.superchargedBorder,
+    marginTop: Spacing.md,
+  },
+  weeklyFocusText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    fontWeight: '500',
+    lineHeight: 20,
+  },
+  weeklyNotesSection: {
+    marginTop: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  weeklyNoteItem: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  weeklyErrorText: {
+    textAlign: 'center',
+    color: Colors.danger,
+    fontSize: FontSize.md,
+    paddingVertical: Spacing.xxl,
   },
 });

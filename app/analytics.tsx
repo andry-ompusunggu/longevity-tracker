@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Dimensions,
   Alert,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Paths, File } from 'expo-file-system';
@@ -47,8 +48,10 @@ interface PillarConfig {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
-  targetDesc: string; // e.g. "3x/week"
+  targetDesc: string;
   canSupercharge: boolean;
+  infoYes: string;
+  infoNo: string;
 }
 
 const PILLARS: PillarConfig[] = [
@@ -59,6 +62,8 @@ const PILLARS: PillarConfig[] = [
     color: Colors.muscle,
     targetDesc: '3x/week',
     canSupercharge: true,
+    infoYes: 'Latihan dumbbell (Mechanical tension) / asupan protein pemulihan.',
+    infoNo: 'Hanya duduk seharian tanpa stimulus mekanis pada otot/tulang.',
   },
   {
     key: 'vo2_heart',
@@ -67,6 +72,8 @@ const PILLARS: PillarConfig[] = [
     color: Colors.vo2,
     targetDesc: '2x/week',
     canSupercharge: true,
+    infoYes: 'HIIT/Burpees (ngos-ngosan maksimal) 5-10 menit yang memacu denyut jantung.',
+    infoNo: 'Tidak ada aktivitas yang meningkatkan denyut jantung secara signifikan.',
   },
   {
     key: 'fasting_food',
@@ -75,6 +82,8 @@ const PILLARS: PillarConfig[] = [
     color: Colors.fasting,
     targetDesc: '7x/week',
     canSupercharge: false,
+    infoYes: 'Puasa 17:7 terjaga & High-protein meal prep (makanan utuh).',
+    infoNo: 'Jendela puasa berantakan atau konsumsi makanan ultra-processed tanpa protein.',
   },
   {
     key: 'sleep_circadian',
@@ -83,6 +92,8 @@ const PILLARS: PillarConfig[] = [
     color: Colors.sleep,
     targetDesc: '7x/week',
     canSupercharge: false,
+    infoYes: 'Cahaya matahari pagi (sirkadian reset) + No blue light 1 jam sebelum tidur.',
+    infoNo: 'Tidur larut tanpa exposure sinar matahari pagi atau gadget sebelum tidur.',
   },
   {
     key: 'brain_cognitive',
@@ -91,6 +102,8 @@ const PILLARS: PillarConfig[] = [
     color: Colors.brain,
     targetDesc: '5x/week',
     canSupercharge: true,
+    infoYes: 'Kerja deep-focus (coding rumit / baca buku klasik) tanpa distraksi 30+ menit.',
+    infoNo: 'Hanya kerja mekanis, scroll media sosial, atau konsumsi konten pasif.',
   },
 ];
 
@@ -124,6 +137,32 @@ function formatShortDate(dateStr: string, totalDays: number): string {
   return `${m}/${d}`;
 }
 
+// ─── Pillar color order for pill indicators ───────────────────────────────────
+
+const PILLAR_KEYS: (keyof DayData & string)[] = [
+  'muscle_bone',
+  'vo2_heart',
+  'fasting_food',
+  'sleep_circadian',
+  'brain_cognitive',
+];
+
+const PILLAR_COLORS: Record<string, string> = {
+  muscle_bone: Colors.muscle,
+  vo2_heart: Colors.vo2,
+  fasting_food: Colors.fasting,
+  sleep_circadian: Colors.sleep,
+  brain_cognitive: Colors.brain,
+};
+
+const PILLAR_LABELS_SHORT: Record<string, string> = {
+  muscle_bone: 'M',
+  vo2_heart: 'V',
+  fasting_food: 'F',
+  sleep_circadian: 'S',
+  brain_cognitive: 'B',
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function AnalyticsScreen() {
@@ -135,6 +174,7 @@ export default function AnalyticsScreen() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [selectedDays, setSelectedDays] = useState(7);
+  const [infoPillar, setInfoPillar] = useState<PillarConfig | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -168,8 +208,8 @@ export default function AnalyticsScreen() {
   const labelStep = getLabelStep(dailyData.length);
   const isLongPeriod = dailyData.length > 14;
 
-  const barColumnWidth = isLongPeriod ? Math.max(24, Math.min(36, (SCREEN_WIDTH - 48) / 18)) : undefined;
-  const chartInnerWidth = isLongPeriod && barColumnWidth ? dailyData.length * (barColumnWidth + 3) : undefined;
+  const barColumnWidth = isLongPeriod ? Math.max(20, Math.min(28, (SCREEN_WIDTH - 48) / 22)) : undefined;
+  const chartInnerWidth = isLongPeriod && barColumnWidth ? dailyData.length * (barColumnWidth + 2) : undefined;
 
   const selectedLabel = PERIODS.find((p) => p.days === selectedDays)?.label ?? `${selectedDays}D`;
 
@@ -256,7 +296,7 @@ export default function AnalyticsScreen() {
               <Text
                 style={[
                   styles.mainCardValue,
-                  { color: bdsPercent >= 70 ? Colors.supercharged : Colors.warning },
+                  { color: bdsPercent >= 70 ? Colors.success : Colors.warning },
                 ]}
               >
                 {bdsPercent}%
@@ -267,7 +307,7 @@ export default function AnalyticsScreen() {
                     styles.mainProgressFill,
                     {
                       width: `${Math.min(bdsPercent, 100)}%` as any,
-                      backgroundColor: bdsPercent >= 70 ? Colors.supercharged : Colors.warning,
+                      backgroundColor: bdsPercent >= 70 ? Colors.success : Colors.warning,
                     },
                   ]}
                 />
@@ -296,13 +336,19 @@ export default function AnalyticsScreen() {
                 const barWidth = `${Math.min(percent, 100)}%` as any;
 
                 return (
-                  <View key={pillar.key} style={styles.pillarBarContainer}>
+                  <TouchableOpacity
+                    key={pillar.key}
+                    style={styles.pillarBarContainer}
+                    onPress={() => setInfoPillar(pillar)}
+                    activeOpacity={0.7}
+                  >
                     <View style={styles.pillarBarHeader}>
                       <View style={styles.pillarBarLabelRow}>
                         <Ionicons name={pillar.icon} size={16} color={barColor} />
-                        <Text style={[styles.pillarBarLabel, { color: barColor }]}>
+                        <Text style={[styles.pillarBarLabel, { color: barColor }]} numberOfLines={1}>
                           {pillar.label}
                         </Text>
+                        <Ionicons name="information-circle-outline" size={14} color={Colors.textMuted} />
                         {isSupercharged && (
                           <View style={styles.superchargedBadge}>
                             <Ionicons name="flash" size={11} color={Colors.superchargedBadge} />
@@ -326,15 +372,16 @@ export default function AnalyticsScreen() {
                       />
                     </View>
                     <Text style={styles.pillarBarTarget}>{pillar.targetDesc}</Text>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
 
-            {/* ── Bar Chart ───────────────────────────────────── */}
+            {/* ── Daily Pill Indicators ────────────────────────── */}
             <View style={styles.chartSection}>
               <Text style={styles.sectionTitle}>Daily Breakdown</Text>
               <View style={styles.chartCard}>
+                {/* 5-pillar color legend */}
                 <View style={styles.legend}>
                   <LegendItem color={Colors.muscle} label="Muscle" />
                   <LegendItem color={Colors.vo2} label="VO₂" />
@@ -347,11 +394,11 @@ export default function AnalyticsScreen() {
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
-                    style={styles.barsScroll}
+                    style={styles.pillsScroll}
                   >
-                    <View style={{ flexDirection: 'row', gap: 3, minWidth: chartInnerWidth }}>
+                    <View style={{ flexDirection: 'row', gap: 2, minWidth: chartInnerWidth }}>
                       {dailyData.map((day, i) => (
-                        <DayBar
+                        <DayPill
                           key={day.date}
                           data={day}
                           showLabel={i % labelStep === 0 || i === dailyData.length - 1}
@@ -362,9 +409,9 @@ export default function AnalyticsScreen() {
                     </View>
                   </ScrollView>
                 ) : (
-                  <View style={styles.barsContainer}>
+                  <View style={styles.pillsContainer}>
                     {dailyData.map((day, i) => (
-                      <DayBar
+                      <DayPill
                         key={day.date}
                         data={day}
                         showLabel={i % labelStep === 0 || i === dailyData.length - 1}
@@ -395,6 +442,42 @@ export default function AnalyticsScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* ── Pillar Info Modal ──────────────────────────────────── */}
+      <Modal
+        visible={infoPillar !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setInfoPillar(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {infoPillar && (
+              <>
+                <View style={styles.infoModalHeader}>
+                  <Ionicons name={infoPillar.icon} size={24} color={infoPillar.color} />
+                  <Text style={styles.infoModalTitle}>{infoPillar.label}</Text>
+                </View>
+
+                <Text style={styles.modalSectionLabel}>Klik YA jika:</Text>
+                <Text style={styles.modalBody}>{infoPillar.infoYes}</Text>
+
+                <Text style={styles.modalSectionLabel}>Biarkan TIDAK jika:</Text>
+                <Text style={styles.modalBody}>{infoPillar.infoNo}</Text>
+
+                <Text style={styles.modalTargetText}>Target: {infoPillar.targetDesc}</Text>
+              </>
+            )}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setInfoPillar(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modalCloseText}>Mengerti</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -410,9 +493,9 @@ function LegendItem({ color, label }: { color: string; label: string }) {
   );
 }
 
-// ─── Day Bar ─────────────────────────────────────────────────────────────────
+// ─── Day Pill (5 mini circles per day instead of stacked bars) ────────────────
 
-function DayBar({
+function DayPill({
   data,
   showLabel,
   compact,
@@ -426,26 +509,28 @@ function DayBar({
   const label = formatShortDate(data.date, totalDays);
 
   return (
-    <View style={[styles.dayBarColumn, compact && styles.dayBarColumnCompact]}>
-      <View style={[styles.dayBarsStack, compact && styles.dayBarsStackCompact]}>
-        {data.muscle_bone === 1 && (
-          <View style={[styles.dayBarSegment, { backgroundColor: Colors.muscle }]} />
-        )}
-        {data.vo2_heart === 1 && (
-          <View style={[styles.dayBarSegment, { backgroundColor: Colors.vo2 }]} />
-        )}
-        {data.fasting_food === 1 && (
-          <View style={[styles.dayBarSegment, { backgroundColor: Colors.fasting }]} />
-        )}
-        {data.sleep_circadian === 1 && (
-          <View style={[styles.dayBarSegment, { backgroundColor: Colors.sleep }]} />
-        )}
-        {data.brain_cognitive === 1 && (
-          <View style={[styles.dayBarSegment, { backgroundColor: Colors.brain }]} />
-        )}
+    <View style={[styles.dayPillColumn, compact && styles.dayPillColumnCompact]}>
+      <View style={styles.dayPillStack}>
+        {PILLAR_KEYS.map((key) => {
+          const isActive = data[key] === 1;
+          const color = PILLAR_COLORS[key];
+          return (
+            <View
+              key={key}
+              style={[
+                styles.dayPillCircle,
+                compact && styles.dayPillCircleCompact,
+                {
+                  backgroundColor: isActive ? color : Colors.pillBg,
+                  borderColor: isActive ? color : Colors.pillInactive,
+                },
+              ]}
+            />
+          );
+        })}
       </View>
       {showLabel && (
-        <Text style={[styles.dayBarLabel, compact && styles.dayBarLabelCompact]}>
+        <Text style={[styles.dayPillLabel, compact && styles.dayPillLabelCompact]}>
           {label}
         </Text>
       )}
@@ -609,6 +694,11 @@ const styles = StyleSheet.create({
   },
   pillarBarContainer: {
     gap: Spacing.xs,
+    backgroundColor: Colors.bgCard,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   pillarBarHeader: {
     flexDirection: 'row',
@@ -618,20 +708,23 @@ const styles = StyleSheet.create({
   pillarBarLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
+    gap: Spacing.xs,
+    flex: 1,
+    marginRight: Spacing.sm,
   },
   pillarBarLabel: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
     fontWeight: '700',
     letterSpacing: -0.2,
+    flexShrink: 1,
   },
   pillarBarPercent: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
     fontWeight: '800',
   },
   pillarBarTrack: {
     width: '100%',
-    height: 12,
+    height: 10,
     backgroundColor: Colors.bg,
     borderRadius: BorderRadius.sm,
     overflow: 'hidden',
@@ -657,7 +750,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.superchargedBorder,
   },
   superchargedText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
     color: Colors.supercharged,
   },
@@ -672,7 +765,7 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.xs,
   },
 
-  // ── Chart Section ────────────────────────────────────────────
+  // ── Daily Pill Indicators ────────────────────────────────────
   chartSection: {
     gap: Spacing.md,
     marginBottom: Spacing.xl,
@@ -714,52 +807,50 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // ── Bar Chart ────────────────────────────────────────────────
-  barsScroll: {
+  // ── Pill Indicators ──────────────────────────────────────────
+  pillsScroll: {
     overflow: 'hidden',
   },
-  barsContainer: {
+  pillsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
     gap: Spacing.xs,
-    minHeight: 120,
   },
-  dayBarColumn: {
+  dayPillColumn: {
     flex: 1,
     alignItems: 'center',
     gap: Spacing.xs,
   },
-  dayBarColumnCompact: {
+  dayPillColumnCompact: {
     flex: 0,
-    width: 24,
+    width: 20,
   },
-  dayBarsStack: {
-    width: '100%',
-    maxWidth: 22,
-    height: 100,
-    backgroundColor: Colors.bg,
-    borderRadius: BorderRadius.sm,
-    overflow: 'hidden',
-    justifyContent: 'flex-end',
+  dayPillStack: {
+    flexDirection: 'column',
+    gap: 3,
+    alignItems: 'center',
   },
-  dayBarsStackCompact: {
-    width: 18,
-    maxWidth: 18,
-    height: 75,
+  dayPillCircle: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
   },
-  dayBarSegment: {
-    width: '100%',
-    height: 20,
+  dayPillCircleCompact: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1,
   },
-  dayBarLabel: {
+  dayPillLabel: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
     fontWeight: '500',
     textAlign: 'center',
   },
-  dayBarLabelCompact: {
-    fontSize: 9,
+  dayPillLabelCompact: {
+    fontSize: 8,
   },
 
   // ── Export Button ────────────────────────────────────────────
@@ -775,6 +866,64 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   exportButtonText: {
+    color: Colors.textInverse,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+  },
+
+  // ── Info Modal ──────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xxl,
+  },
+  modalContent: {
+    backgroundColor: Colors.bgCard,
+    borderRadius: BorderRadius.xxxl,
+    padding: Spacing.xxl,
+    maxWidth: 400,
+    width: '100%',
+    gap: Spacing.md,
+  },
+  infoModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  infoModalTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    lineHeight: 24,
+  },
+  modalSectionLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginTop: Spacing.xs,
+  },
+  modalBody: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  modalTargetText: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontStyle: 'italic',
+    marginTop: Spacing.xs,
+  },
+  modalCloseButton: {
+    backgroundColor: Colors.textPrimary,
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    marginTop: Spacing.md,
+  },
+  modalCloseText: {
     color: Colors.textInverse,
     fontSize: FontSize.sm,
     fontWeight: '600',
