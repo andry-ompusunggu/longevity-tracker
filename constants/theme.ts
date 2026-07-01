@@ -9,16 +9,24 @@ export const Colors = {
   textMuted: '#9CA3AF',       // Light gray
   textInverse: '#FFFFFF',     // White text on dark bg
 
-  // Accent colors for the Big Three (transit-line inspired)
-  muscle: '#EF4444',
+  // Accent colors for the 5 Pillars (transit-line inspired)
+  muscle: '#EF4444',      // Red — strength & power
   muscleBg: '#FEF2F2',
   muscleBorder: '#FECACA',
 
-  fasting: '#10B981',
+  vo2: '#F97316',         // Orange — cardiovascular fire
+  vo2Bg: '#FFF7ED',
+  vo2Border: '#FED7AA',
+
+  fasting: '#10B981',     // Green — nutritional health
   fastingBg: '#ECFDF5',
   fastingBorder: '#A7F3D0',
 
-  brain: '#06B6D4',
+  sleep: '#8B5CF6',       // Purple — circadian restoration
+  sleepBg: '#F5F3FF',
+  sleepBorder: '#DDD6FE',
+
+  brain: '#06B6D4',       // Cyan — cognitive sharpness
   brainBg: '#ECFEFF',
   brainBorder: '#A5F3FC',
 
@@ -27,9 +35,12 @@ export const Colors = {
   success: '#10B981',
   warning: '#F59E0B',
   danger: '#EF4444',
-  achievement: '#F59E0B',   // Gold for overachievement (Muscle >100%)
-  achievementBorder: '#FCD34D', // Bright gold border
-  achievementBg: '#FFFBEB',  // Soft gold background
+
+  // Supercharged overachievement (>100%)
+  supercharged: '#22C55E',           // Vibrant green for Muscle/VO2/Brain >100%
+  superchargedBorder: '#86EFAC',
+  superchargedBg: '#F0FDF4',
+  superchargedBadge: '#FBBF24',      // Gold accent ⚡
 
   // Tab bar
   tabBar: '#FFFFFF',

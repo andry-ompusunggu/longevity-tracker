@@ -24,8 +24,10 @@ import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+type PillarKey = 'muscle_bone' | 'vo2_heart' | 'fasting_food' | 'sleep_circadian' | 'brain_cognitive';
+
 interface ToggleCardConfig {
-  key: 'muscle_bone' | 'fasting_nutrition' | 'brain_cognitive';
+  key: PillarKey;
   label: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
@@ -48,9 +50,19 @@ const CARDS: ToggleCardConfig[] = [
     colorBorder: Colors.muscleBorder,
   },
   {
-    key: 'fasting_nutrition',
-    label: 'Nutrient Window',
-    subtitle: 'IF adherence & protein intake',
+    key: 'vo2_heart',
+    label: 'Mitochondria & VO₂',
+    subtitle: 'HIIT / cardio burst 5-10 min',
+    icon: 'flame-outline',
+    iconActive: 'flame',
+    color: Colors.vo2,
+    colorBg: Colors.vo2Bg,
+    colorBorder: Colors.vo2Border,
+  },
+  {
+    key: 'fasting_food',
+    label: 'Fasting & Real Food',
+    subtitle: '17:7 IF + high-protein meal prep',
     icon: 'nutrition-outline',
     iconActive: 'nutrition',
     color: Colors.fasting,
@@ -58,9 +70,19 @@ const CARDS: ToggleCardConfig[] = [
     colorBorder: Colors.fastingBorder,
   },
   {
+    key: 'sleep_circadian',
+    label: 'Sleep & Circadian',
+    subtitle: 'Morning sun + no blue light PM',
+    icon: 'moon-outline',
+    iconActive: 'moon',
+    color: Colors.sleep,
+    colorBg: Colors.sleepBg,
+    colorBorder: Colors.sleepBorder,
+  },
+  {
     key: 'brain_cognitive',
-    label: 'Brain & Nerve',
-    subtitle: 'Cognitive stimulation & learning',
+    label: 'Brain & Cognitive',
+    subtitle: 'Deep focus work without distraction',
     icon: 'school-outline',
     iconActive: 'school',
     color: Colors.brain,
@@ -73,20 +95,29 @@ const CARDS: ToggleCardConfig[] = [
 
 const INFO_TEXT: Record<string, { title: string; yes: string; no: string; note?: string }> = {
   muscle_bone: {
-    title: '💪 Muscle & Bone — Rule of Thumb',
-    yes: 'Latihan beban mekanis (dumbbell rumah, push-up, squat) sampai otot terasa fatigue.\n\n— Atau —\nHari istirahat (rest) dengan target protein harian + kalsium (susu) terpenuhi untuk pemulihan sintesis otot.',
-    no: 'Hanya duduk seharian atau sekadar jalan kaki santai di permukaan datar (tidak merangsang pertumbuhan tulang/otot).',
+    title: '🏋️ Muscle & Bone',
+    yes: '1 = Latihan dumbbell (Mechanical tension) / asupan protein pemulihan untuk sintesis otot optimal.',
+    no: 'Hanya duduk seharian tanpa stimulus mekanis pada otot/tulang.',
   },
-  fasting_nutrition: {
-    title: '🥗 Nutrient Window — Net Positive Rule',
-    yes: 'Jendela puasa (Intermittent Fasting) terjaga dan nutrisi dasar aman.',
-    no: 'Jendela puasa berantakan total (makan seharian tanpa henti) atau seharian penuh hanya makan makanan sampah tanpa protein.',
-    note: 'Jika puasa & protein aman tapi ada khilaf makan gula sedikit, tetap klik YA. Wajib catat khilafnya di Quick Note!',
+  vo2_heart: {
+    title: '🫀 Mitochondria & VO₂',
+    yes: '1 = Latihan HIIT / Burpees (ngos-ngosan maksimal) 5-10 menit yang memacu denyut jantung.',
+    no: 'Tidak ada aktivitas yang meningkatkan denyut jantung secara signifikan.',
+  },
+  fasting_food: {
+    title: '🥗 Fasting & Real Food',
+    yes: '1 = Puasa 17:7 terjaga & High-protein meal prep (makanan utuh, bukan olahan).',
+    no: 'Jendela puasa berantakan atau konsumsi makanan ultra-processed tanpa protein.',
+  },
+  sleep_circadian: {
+    title: '☀️ Sleep & Circadian',
+    yes: '1 = Cahaya matahari pagi (sirkadian reset) + No blue light minimal 1 jam sebelum tidur.',
+    no: 'Tidur larut tanpa exposure sinar matahari pagi atau penggunaan gadget sebelum tidur.',
   },
   brain_cognitive: {
-    title: '🧠 Brain & Nerve — Boundary',
-    yes: 'Otak keluar dari mode autopilot.\nBelajar logika coding baru yang rumit, debat arsitektur sistem, atau membaca buku sastra/klasik yang butuh fokus tinggi.',
-    no: 'Hanya melakukan kerjaan mekanis, copy-paste code tanpa berpikir, atau pasif scroll media sosial.',
+    title: '🧠 Brain & Cognitive',
+    yes: '1 = Kerja deep-focus (coding logika rumit / baca buku klasik) tanpa distraksi selama minimal 30 menit.',
+    no: 'Hanya kerja mekanis, scroll media sosial, atau konsumsi konten pasif.',
   },
 };
 
@@ -103,9 +134,11 @@ export default function DashboardScreen() {
   const today = useMemo(() => getTodayString(), []);
   const greeting = useMemo(() => getGreeting(), []);
   const [selectedDate, setSelectedDate] = useState(today);
-  const [toggles, setToggles] = useState({
+  const [toggles, setToggles] = useState<Record<PillarKey, number>>({
     muscle_bone: 0,
-    fasting_nutrition: 0,
+    vo2_heart: 0,
+    fasting_food: 0,
+    sleep_circadian: 0,
     brain_cognitive: 0,
   });
   const [notes, setNotes] = useState('');
@@ -128,13 +161,21 @@ export default function DashboardScreen() {
         if (log) {
           setToggles({
             muscle_bone: log.muscle_bone,
-            fasting_nutrition: log.fasting_nutrition,
+            vo2_heart: log.vo2_heart,
+            fasting_food: log.fasting_food,
+            sleep_circadian: log.sleep_circadian,
             brain_cognitive: log.brain_cognitive,
           });
           setNotes(log.notes || '');
         } else {
           // Reset for empty dates
-          setToggles({ muscle_bone: 0, fasting_nutrition: 0, brain_cognitive: 0 });
+          setToggles({
+            muscle_bone: 0,
+            vo2_heart: 0,
+            fasting_food: 0,
+            sleep_circadian: 0,
+            brain_cognitive: 0,
+          });
           setNotes('');
         }
         setCompliance(rate);
@@ -164,7 +205,7 @@ export default function DashboardScreen() {
 
   // Toggle handler
   const handleToggle = useCallback(
-    async (field: ToggleCardConfig['key']) => {
+    async (field: PillarKey) => {
       setToggles((prev) => ({
         ...prev,
         [field]: prev[field] === 1 ? 0 : 1,

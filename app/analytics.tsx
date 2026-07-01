@@ -14,7 +14,7 @@ import { Paths, File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  getComplianceRate,
+  getBiologicalDefenseScore,
   getPerPillarCompliance,
   getDailyBreakdown,
   getDatabasePath,
@@ -40,13 +40,69 @@ const PERIODS: PeriodOption[] = [
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
+// ─── Pillar config ───────────────────────────────────────────────────────────
+
+interface PillarConfig {
+  key: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  targetDesc: string; // e.g. "3x/week"
+  canSupercharge: boolean;
+}
+
+const PILLARS: PillarConfig[] = [
+  {
+    key: 'muscle_bone',
+    label: 'Muscle & Bone',
+    icon: 'fitness',
+    color: Colors.muscle,
+    targetDesc: '3x/week',
+    canSupercharge: true,
+  },
+  {
+    key: 'vo2_heart',
+    label: 'Mitochondria & VO₂',
+    icon: 'flame',
+    color: Colors.vo2,
+    targetDesc: '2x/week',
+    canSupercharge: true,
+  },
+  {
+    key: 'fasting_food',
+    label: 'Fasting & Real Food',
+    icon: 'nutrition',
+    color: Colors.fasting,
+    targetDesc: '7x/week',
+    canSupercharge: false,
+  },
+  {
+    key: 'sleep_circadian',
+    label: 'Sleep & Circadian',
+    icon: 'moon',
+    color: Colors.sleep,
+    targetDesc: '7x/week',
+    canSupercharge: false,
+  },
+  {
+    key: 'brain_cognitive',
+    label: 'Brain & Cognitive',
+    icon: 'school',
+    color: Colors.brain,
+    targetDesc: '5x/week',
+    canSupercharge: true,
+  },
+];
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface DayData {
   date: string;
   compliance: number;
   muscle_bone: number;
-  fasting_nutrition: number;
+  vo2_heart: number;
+  fasting_food: number;
+  sleep_circadian: number;
   brain_cognitive: number;
 }
 
@@ -71,12 +127,10 @@ function formatShortDate(dateStr: string, totalDays: number): string {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function AnalyticsScreen() {
-  const [selectedRate, setSelectedRate] = useState(0);
-  const [weeklyRate, setWeeklyRate] = useState(0);
-  const [monthlyRate, setMonthlyRate] = useState(0);
-  const [muscleRate, setMuscleRate] = useState(0);
-  const [fastingRate, setFastingRate] = useState(0);
-  const [brainRate, setBrainRate] = useState(0);
+  const [bdsRate, setBdsRate] = useState(0);
+  const [weeklyBds, setWeeklyBds] = useState(0);
+  const [monthlyBds, setMonthlyBds] = useState(0);
+  const [pillarRates, setPillarRates] = useState<Record<string, number>>({});
   const [dailyData, setDailyData] = useState<DayData[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -85,19 +139,17 @@ export default function AnalyticsScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [sRate, wRate, mRate, pRate, breakdown] = await Promise.all([
-        getComplianceRate(selectedDays),
-        getComplianceRate(7),
-        getComplianceRate(30),
+      const [bds, wBds, mBds, pRate, breakdown] = await Promise.all([
+        getBiologicalDefenseScore(selectedDays),
+        getBiologicalDefenseScore(7),
+        getBiologicalDefenseScore(30),
         getPerPillarCompliance(selectedDays),
         getDailyBreakdown(selectedDays),
       ]);
-      setSelectedRate(sRate);
-      setWeeklyRate(wRate);
-      setMonthlyRate(mRate);
-      setMuscleRate(pRate.muscle_bone);
-      setFastingRate(pRate.fasting_nutrition);
-      setBrainRate(pRate.brain_cognitive);
+      setBdsRate(bds);
+      setWeeklyBds(wBds);
+      setMonthlyBds(mBds);
+      setPillarRates(pRate);
       setDailyData(breakdown);
     } catch (err) {
       console.error('Failed to load analytics:', err);
@@ -110,18 +162,14 @@ export default function AnalyticsScreen() {
     loadData();
   }, [loadData]);
 
-  const selectedPercent = Math.round(selectedRate * 100);
-  const weeklyPercent = Math.round(weeklyRate * 100);
-  const monthlyPercent = Math.round(monthlyRate * 100);
-  const musclePercent = Math.round(muscleRate * 100);
-  const fastingPercent = Math.round(fastingRate * 100);
-  const brainPercent = Math.round(brainRate * 100);
-  const isMuscleOverachieving = musclePercent > 100;
+  const bdsPercent = Math.round(bdsRate * 100);
+  const weeklyBdsPercent = Math.round(weeklyBds * 100);
+  const monthlyBdsPercent = Math.round(monthlyBds * 100);
   const labelStep = getLabelStep(dailyData.length);
   const isLongPeriod = dailyData.length > 14;
 
-  const barColumnWidth = isLongPeriod ? Math.max(28, Math.min(40, (SCREEN_WIDTH - 48) / 15)) : undefined;
-  const chartInnerWidth = isLongPeriod && barColumnWidth ? dailyData.length * (barColumnWidth + 4) : undefined;
+  const barColumnWidth = isLongPeriod ? Math.max(24, Math.min(36, (SCREEN_WIDTH - 48) / 18)) : undefined;
+  const chartInnerWidth = isLongPeriod && barColumnWidth ? dailyData.length * (barColumnWidth + 3) : undefined;
 
   const selectedLabel = PERIODS.find((p) => p.days === selectedDays)?.label ?? `${selectedDays}D`;
 
@@ -158,7 +206,7 @@ export default function AnalyticsScreen() {
         {/* ── Header ──────────────────────────────────────────── */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Analytics</Text>
-          <Text style={styles.headerSubtitle}>Your compliance trends</Text>
+          <Text style={styles.headerSubtitle}>5-Pillar Biological Defense Score</Text>
         </View>
 
         {/* ── Period Selector ─────────────────────────────────── */}
@@ -199,65 +247,88 @@ export default function AnalyticsScreen() {
           </View>
         ) : (
           <>
-            {/* ── Main Compliance Card ────────────────────────── */}
+            {/* ── BDS Main Card ───────────────────────────────── */}
             <View style={styles.mainCard}>
-              <Text style={styles.mainCardLabel}>{selectedLabel} Compliance</Text>
+              <View style={styles.bdsLabelRow}>
+                <Ionicons name="shield-checkmark-outline" size={20} color={Colors.textSecondary} />
+                <Text style={styles.mainCardLabel}>{selectedLabel} Biological Defense</Text>
+              </View>
               <Text
                 style={[
                   styles.mainCardValue,
-                  { color: selectedPercent >= 70 ? Colors.success : Colors.warning },
+                  { color: bdsPercent >= 70 ? Colors.supercharged : Colors.warning },
                 ]}
               >
-                {selectedPercent}%
+                {bdsPercent}%
               </Text>
               <View style={styles.mainProgressTrack}>
                 <View
                   style={[
                     styles.mainProgressFill,
                     {
-                      width: `${Math.min(selectedPercent, 100)}%` as any,
-                      backgroundColor: selectedPercent >= 70 ? Colors.success : Colors.warning,
+                      width: `${Math.min(bdsPercent, 100)}%` as any,
+                      backgroundColor: bdsPercent >= 70 ? Colors.supercharged : Colors.warning,
                     },
                   ]}
                 />
               </View>
               <View style={styles.contextRow}>
                 <View style={styles.contextItem}>
-                  <Text style={styles.contextValue}>{weeklyPercent}%</Text>
+                  <Text style={styles.contextValue}>{weeklyBdsPercent}%</Text>
                   <Text style={styles.contextLabel}>7-day</Text>
                 </View>
                 <View style={styles.contextDivider} />
                 <View style={styles.contextItem}>
-                  <Text style={styles.contextValue}>{monthlyPercent}%</Text>
+                  <Text style={styles.contextValue}>{monthlyBdsPercent}%</Text>
                   <Text style={styles.contextLabel}>30-day</Text>
                 </View>
               </View>
             </View>
 
-            {/* ── Per-Pillar Breakdown ────────────────────────── */}
+            {/* ── 5 Pillar Progress Bars ───────────────────────── */}
             <View style={styles.pillarSection}>
-              <Text style={styles.sectionTitle}>Per-Pillar Breakdown</Text>
-              <View style={styles.pillarRow}>
-                <PillarCard
-                  icon="fitness"
-                  label="Muscle & Bone"
-                  percent={musclePercent}
-                  accentColor={isMuscleOverachieving ? Colors.achievement : Colors.muscle}
-                  isOverachieving={isMuscleOverachieving}
-                />
-                <PillarCard
-                  icon="nutrition"
-                  label="Nutrient Window"
-                  percent={fastingPercent}
-                  accentColor={Colors.fasting}
-                />
-                <PillarCard
-                  icon="school"
-                  label="Brain & Nerve"
-                  percent={brainPercent}
-                  accentColor={Colors.brain}
-                />
-              </View>
+              <Text style={styles.sectionTitle}>The 5 Pillars</Text>
+              {PILLARS.map((pillar) => {
+                const rate = pillarRates[pillar.key] ?? 0;
+                const percent = Math.round(rate * 100);
+                const isSupercharged = pillar.canSupercharge && percent > 100;
+                const barColor = isSupercharged ? Colors.supercharged : pillar.color;
+                const barWidth = `${Math.min(percent, 100)}%` as any;
+
+                return (
+                  <View key={pillar.key} style={styles.pillarBarContainer}>
+                    <View style={styles.pillarBarHeader}>
+                      <View style={styles.pillarBarLabelRow}>
+                        <Ionicons name={pillar.icon} size={16} color={barColor} />
+                        <Text style={[styles.pillarBarLabel, { color: barColor }]}>
+                          {pillar.label}
+                        </Text>
+                        {isSupercharged && (
+                          <View style={styles.superchargedBadge}>
+                            <Ionicons name="flash" size={11} color={Colors.superchargedBadge} />
+                            <Text style={styles.superchargedText}>Supercharged ⚡</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.pillarBarPercent, { color: barColor }]}>
+                        {percent}%
+                      </Text>
+                    </View>
+                    <View style={styles.pillarBarTrack}>
+                      <View
+                        style={[
+                          styles.pillarBarFill,
+                          {
+                            width: barWidth,
+                            backgroundColor: barColor,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.pillarBarTarget}>{pillar.targetDesc}</Text>
+                  </View>
+                );
+              })}
             </View>
 
             {/* ── Bar Chart ───────────────────────────────────── */}
@@ -266,7 +337,9 @@ export default function AnalyticsScreen() {
               <View style={styles.chartCard}>
                 <View style={styles.legend}>
                   <LegendItem color={Colors.muscle} label="Muscle" />
-                  <LegendItem color={Colors.fasting} label="Nutrition" />
+                  <LegendItem color={Colors.vo2} label="VO₂" />
+                  <LegendItem color={Colors.fasting} label="Food" />
+                  <LegendItem color={Colors.sleep} label="Sleep" />
                   <LegendItem color={Colors.brain} label="Brain" />
                 </View>
 
@@ -276,7 +349,7 @@ export default function AnalyticsScreen() {
                     showsHorizontalScrollIndicator={false}
                     style={styles.barsScroll}
                   >
-                    <View style={{ flexDirection: 'row', gap: 4, minWidth: chartInnerWidth }}>
+                    <View style={{ flexDirection: 'row', gap: 3, minWidth: chartInnerWidth }}>
                       {dailyData.map((day, i) => (
                         <DayBar
                           key={day.date}
@@ -326,73 +399,6 @@ export default function AnalyticsScreen() {
   );
 }
 
-// ─── Pillar Card ────────────────────────────────────────────────────────────
-
-function PillarCard({
-  icon,
-  label,
-  percent,
-  accentColor,
-  isOverachieving,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  percent: number;
-  accentColor: string;
-  isOverachieving?: boolean;
-}) {
-  const clampedPercent = Math.min(percent, 100);
-
-  return (
-    <View
-      style={[
-        styles.pillarCard,
-        isOverachieving && styles.pillarCardAchievement,
-      ]}
-    >
-      <View
-        style={[
-          styles.pillarIconBox,
-          { backgroundColor: isOverachieving ? Colors.achievementBg : accentColor + '18' },
-        ]}
-      >
-        <Ionicons
-          name={icon}
-          size={20}
-          color={isOverachieving ? Colors.achievement : accentColor}
-        />
-      </View>
-      <Text
-        style={[
-          styles.pillarPercent,
-          { color: accentColor },
-          isOverachieving && { color: Colors.achievement },
-        ]}
-      >
-        {percent}%
-      </Text>
-      <View style={styles.pillarProgressTrack}>
-        <View
-          style={[
-            styles.pillarProgressFill,
-            {
-              width: `${Math.min(clampedPercent, 100)}%` as any,
-              backgroundColor: isOverachieving ? Colors.achievement : accentColor,
-            },
-          ]}
-        />
-      </View>
-      <Text style={styles.pillarLabel}>{label}</Text>
-      {isOverachieving && (
-        <View style={styles.achievementBadge}>
-          <Ionicons name="flash" size={10} color={Colors.achievement} />
-          <Text style={styles.achievementText}>Bonus</Text>
-        </View>
-      )}
-    </View>
-  );
-}
-
 // ─── Legend Item ─────────────────────────────────────────────────────────────
 
 function LegendItem({ color, label }: { color: string; label: string }) {
@@ -425,8 +431,14 @@ function DayBar({
         {data.muscle_bone === 1 && (
           <View style={[styles.dayBarSegment, { backgroundColor: Colors.muscle }]} />
         )}
-        {data.fasting_nutrition === 1 && (
+        {data.vo2_heart === 1 && (
+          <View style={[styles.dayBarSegment, { backgroundColor: Colors.vo2 }]} />
+        )}
+        {data.fasting_food === 1 && (
           <View style={[styles.dayBarSegment, { backgroundColor: Colors.fasting }]} />
+        )}
+        {data.sleep_circadian === 1 && (
+          <View style={[styles.dayBarSegment, { backgroundColor: Colors.sleep }]} />
         )}
         {data.brain_cognitive === 1 && (
           <View style={[styles.dayBarSegment, { backgroundColor: Colors.brain }]} />
@@ -515,7 +527,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // ── Main Compliance Card ──────────────────────────────────────
+  // ── BDS Main Card ────────────────────────────────────────────
   mainCard: {
     backgroundColor: Colors.bgCard,
     borderRadius: BorderRadius.xxxl,
@@ -530,6 +542,11 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
     marginBottom: Spacing.xxl,
+  },
+  bdsLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
   },
   mainCardLabel: {
     fontSize: FontSize.sm,
@@ -585,79 +602,64 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.border,
   },
 
-  // ── Per-Pillar Breakdown ──────────────────────────────────────
+  // ── 5 Pillar Progress Bars ───────────────────────────────────
   pillarSection: {
-    gap: Spacing.md,
+    gap: Spacing.lg,
     marginBottom: Spacing.xxl,
   },
-  pillarRow: {
+  pillarBarContainer: {
+    gap: Spacing.xs,
+  },
+  pillarBarHeader: {
     flexDirection: 'row',
-    gap: Spacing.sm,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  pillarCard: {
-    flex: 1,
-    backgroundColor: Colors.bgCard,
-    borderRadius: BorderRadius.xxl,
-    padding: Spacing.md,
+  pillarBarLabelRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
   },
-  pillarCardAchievement: {
-    borderColor: Colors.achievementBorder,
-    borderWidth: 1.5,
-    backgroundColor: Colors.achievementBg,
+  pillarBarLabel: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
-  pillarIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pillarPercent: {
-    fontSize: FontSize.xl,
+  pillarBarPercent: {
+    fontSize: FontSize.md,
     fontWeight: '800',
-    letterSpacing: -0.5,
   },
-  pillarProgressTrack: {
+  pillarBarTrack: {
     width: '100%',
-    height: 4,
+    height: 12,
     backgroundColor: Colors.bg,
-    borderRadius: 2,
+    borderRadius: BorderRadius.sm,
     overflow: 'hidden',
   },
-  pillarProgressFill: {
+  pillarBarFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: BorderRadius.sm,
   },
-  pillarLabel: {
+  pillarBarTarget: {
     fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-    textAlign: 'center',
+    color: Colors.textMuted,
+    fontWeight: '500',
   },
-  achievementBadge: {
+  superchargedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    backgroundColor: Colors.achievementBg,
+    backgroundColor: Colors.superchargedBg,
     borderRadius: BorderRadius.sm,
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
+    paddingVertical: 1,
     borderWidth: 1,
-    borderColor: Colors.achievementBorder,
+    borderColor: Colors.superchargedBorder,
   },
-  achievementText: {
+  superchargedText: {
     fontSize: 10,
     fontWeight: '700',
-    color: Colors.achievement,
+    color: Colors.supercharged,
   },
 
   // ── Section Title ────────────────────────────────────────────
@@ -693,7 +695,7 @@ const styles = StyleSheet.create({
   legend: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: Spacing.xl,
+    gap: Spacing.md,
     flexWrap: 'wrap',
   },
   legendItem: {
@@ -730,11 +732,11 @@ const styles = StyleSheet.create({
   },
   dayBarColumnCompact: {
     flex: 0,
-    width: 28,
+    width: 24,
   },
   dayBarsStack: {
     width: '100%',
-    maxWidth: 24,
+    maxWidth: 22,
     height: 100,
     backgroundColor: Colors.bg,
     borderRadius: BorderRadius.sm,
@@ -742,13 +744,13 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   dayBarsStackCompact: {
-    width: 20,
-    maxWidth: 20,
-    height: 80,
+    width: 18,
+    maxWidth: 18,
+    height: 75,
   },
   dayBarSegment: {
     width: '100%',
-    height: 33,
+    height: 20,
   },
   dayBarLabel: {
     fontSize: FontSize.xs,
@@ -757,7 +759,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   dayBarLabelCompact: {
-    fontSize: 10,
+    fontSize: 9,
   },
 
   // ── Export Button ────────────────────────────────────────────

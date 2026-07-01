@@ -4,16 +4,34 @@ export interface DailyLog {
   id?: number;
   date: string; // YYYY-MM-DD
   muscle_bone: number; // 0 or 1
-  fasting_nutrition: number; // 0 or 1
+  vo2_heart: number; // 0 or 1
+  fasting_food: number; // 0 or 1
+  sleep_circadian: number; // 0 or 1
   brain_cognitive: number; // 0 or 1
   notes: string;
   created_at?: string;
 }
 
+type PillarKey = 'muscle_bone' | 'vo2_heart' | 'fasting_food' | 'sleep_circadian' | 'brain_cognitive';
+
+/**
+ * Weekly target configuration for each pillar.
+ * Pillars with noCap: true can exceed 100% (overachievement).
+ */
+const PILLAR_TARGETS: Record<PillarKey, { perWeek: number; noCap: boolean }> = {
+  muscle_bone: { perWeek: 3, noCap: true },
+  vo2_heart: { perWeek: 2, noCap: true },
+  fasting_food: { perWeek: 7, noCap: false },
+  sleep_circadian: { perWeek: 7, noCap: false },
+  brain_cognitive: { perWeek: 5, noCap: true },
+};
+
+const ALL_PILLARS = Object.keys(PILLAR_TARGETS) as PillarKey[];
+
 let db: SQLite.SQLiteDatabase | null = null;
 
 /**
- * Initialize the database connection and create the table if it doesn't exist.
+ * Initialize the database connection and create/migrate the table.
  * Must be called before any other db operations.
  */
 export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
@@ -24,20 +42,43 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
   // Enable WAL mode for better concurrent read performance
   await db.execAsync('PRAGMA journal_mode = WAL;');
 
-  // Create the daily_logs table with indexed date column
-  await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS daily_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT NOT NULL UNIQUE,
-      muscle_bone INTEGER NOT NULL DEFAULT 0 CHECK(muscle_bone IN (0, 1)),
-      fasting_nutrition INTEGER NOT NULL DEFAULT 0 CHECK(fasting_nutrition IN (0, 1)),
-      brain_cognitive INTEGER NOT NULL DEFAULT 0 CHECK(brain_cognitive IN (0, 1)),
-      notes TEXT DEFAULT '',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
+  // Check if old schema (3-pillar) exists and migrate
+  const tableInfo = await db.getAllAsync<{ name: string }>(
+    "SELECT name FROM pragma_table_info('daily_logs') WHERE name = 'fasting_nutrition'"
+  );
+  const isOldSchema = tableInfo.length > 0;
 
-  // Create index on date column for fast lookups
+  if (isOldSchema) {
+    // V1 → V2 migration: add new columns, map fasting_nutrition → fasting_food
+    await db.execAsync(`
+      ALTER TABLE daily_logs ADD COLUMN vo2_heart INTEGER NOT NULL DEFAULT 0 CHECK(vo2_heart IN (0, 1));
+      ALTER TABLE daily_logs ADD COLUMN sleep_circadian INTEGER NOT NULL DEFAULT 0 CHECK(sleep_circadian IN (0, 1));
+      ALTER TABLE daily_logs ADD COLUMN fasting_food INTEGER NOT NULL DEFAULT 0 CHECK(fasting_food IN (0, 1));
+    `);
+    // Copy data from fasting_nutrition → fasting_food
+    await db.execAsync(
+      `UPDATE daily_logs SET fasting_food = fasting_nutrition;`
+    );
+    // SQLite can't drop columns easily, so we keep fasting_nutrition but ignore it
+    console.log('✅ Migrated schema V1 → V2 (3 pillars → 5 pillars)');
+  } else {
+    // Fresh install — create table with 5 pillars
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS daily_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL UNIQUE,
+        muscle_bone INTEGER NOT NULL DEFAULT 0 CHECK(muscle_bone IN (0, 1)),
+        vo2_heart INTEGER NOT NULL DEFAULT 0 CHECK(vo2_heart IN (0, 1)),
+        fasting_food INTEGER NOT NULL DEFAULT 0 CHECK(fasting_food IN (0, 1)),
+        sleep_circadian INTEGER NOT NULL DEFAULT 0 CHECK(sleep_circadian IN (0, 1)),
+        brain_cognitive INTEGER NOT NULL DEFAULT 0 CHECK(brain_cognitive IN (0, 1)),
+        notes TEXT DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  }
+
+  // Ensure index exists
   await db.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_daily_logs_date ON daily_logs(date);
   `);
@@ -73,7 +114,7 @@ export async function getLogByDate(date: string): Promise<DailyLog | null> {
  */
 export async function upsertLog(
   date: string,
-  updates: Partial<Pick<DailyLog, 'muscle_bone' | 'fasting_nutrition' | 'brain_cognitive' | 'notes'>>
+  updates: Partial<Pick<DailyLog, 'muscle_bone' | 'vo2_heart' | 'fasting_food' | 'sleep_circadian' | 'brain_cognitive' | 'notes'>>
 ): Promise<void> {
   const database = getDb();
 
@@ -81,28 +122,34 @@ export async function upsertLog(
   const existing = await getLogByDate(date);
 
   if (existing) {
-    // Update existing row
-    const muscle_bone = updates.muscle_bone ?? existing.muscle_bone;
-    const fasting_nutrition = updates.fasting_nutrition ?? existing.fasting_nutrition;
-    const brain_cognitive = updates.brain_cognitive ?? existing.brain_cognitive;
+    // Build SET clause dynamically
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    for (const pillar of ALL_PILLARS) {
+      const val = updates[pillar] ?? existing[pillar];
+      fields.push(`${pillar} = ?`);
+      values.push(val);
+    }
+
     const notes = updates.notes !== undefined ? updates.notes : existing.notes;
+    fields.push('notes = ?');
+    values.push(notes);
+    values.push(date);
 
     await database.runAsync(
-      `UPDATE daily_logs SET muscle_bone = ?, fasting_nutrition = ?, brain_cognitive = ?, notes = ? WHERE date = ?`,
-      muscle_bone,
-      fasting_nutrition,
-      brain_cognitive,
-      notes,
-      date
+      `UPDATE daily_logs SET ${fields.join(', ')} WHERE date = ?`,
+      ...values
     );
   } else {
     // Insert new row
+    const pillars = ALL_PILLARS.map((p) => updates[p] ?? 0);
+    const placeholders = ALL_PILLARS.map(() => '?').join(', ');
+
     await database.runAsync(
-      `INSERT INTO daily_logs (date, muscle_bone, fasting_nutrition, brain_cognitive, notes) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO daily_logs (date, ${ALL_PILLARS.join(', ')}, notes) VALUES (?, ${placeholders}, ?)`,
       date,
-      updates.muscle_bone ?? 0,
-      updates.fasting_nutrition ?? 0,
-      updates.brain_cognitive ?? 0,
+      ...pillars,
       updates.notes ?? ''
     );
   }
@@ -114,7 +161,7 @@ export async function upsertLog(
  */
 export async function toggleField(
   date: string,
-  field: 'muscle_bone' | 'fasting_nutrition' | 'brain_cognitive'
+  field: PillarKey
 ): Promise<number> {
   const database = getDb();
   const existing = await getLogByDate(date);
@@ -145,78 +192,93 @@ export async function getLogsInRange(
 }
 
 /**
+ * Calculate the number of calendar weeks in a period of N days.
+ */
+function countWeeks(days: number): number {
+  return Math.ceil(days / 7);
+}
+
+/**
+ * Calculate Biological Defense Score (BDS) — the average of all 5 pillar percentages,
+ * capped at 100% for the aggregate (individual pillars may exceed 100%).
+ */
+export async function getBiologicalDefenseScore(daysBack: number): Promise<number> {
+  const pillars = await getPerPillarCompliance(daysBack);
+  const values = ALL_PILLARS.map((p) => pillars[p]);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  return Math.min(avg, 1); // Aggregate capped at 100%
+}
+
+/**
  * Calculate compliance rate for a given number of days back from today.
  * Returns a value from 0 to 1 (or 0 if no data).
  *
- * Formula: Total approved actions / (number_of_days * 3)
+ * Uses the BDS formula: average of all 5 pillar percentages, capped at 100%.
+ * Kept for backward compatibility with old analytics code.
  */
 export async function getComplianceRate(daysBack: number): Promise<number> {
-  const endDate = getTodayString();
-  const startDate = getDaysAgoString(daysBack - 1);
-
-  const logs = await getLogsInRange(startDate, endDate);
-
-  if (logs.length === 0) return 0;
-
-  let totalApproved = 0;
-  for (const log of logs) {
-    totalApproved += log.muscle_bone + log.fasting_nutrition + log.brain_cognitive;
-  }
-
-  const maxPossible = daysBack * 3;
-  return Math.min(totalApproved / maxPossible, 1);
+  return getBiologicalDefenseScore(daysBack);
 }
 
 /**
- * Calculate per-pillar compliance rates using the new formula:
+ * Calculate per-pillar compliance rates using the new dynamic weekly targeting:
  *
- * - Muscle & Bone:   actual_days / (ceil(daysBack/7) * 3)  → can exceed 1.0
- * - Fasting/Nutrition: actual_days / daysBack                → capped at 1.0
- * - Brain/Cognitive:  actual_days / daysBack                 → capped at 1.0
+ * - Muscle & Bone:   actual / (ceil(daysBack/7) * 3)  → can exceed 100% (overachievement)
+ * - Mitochondria/VO2: actual / (ceil(daysBack/7) * 2)  → can exceed 100%
+ * - Fasting & Food:   actual / daysBack                → capped at 100%
+ * - Sleep & Circadian: actual / daysBack               → capped at 100%
+ * - Brain/Cognitive:  actual / (ceil(daysBack/7) * 5)  → can exceed 100%
  *
- * Returns values as decimals (0.0 – 1.0+ for muscle).
+ * Returns values as decimals (0.0 – 1.0+ for uncapped pillars).
  */
-export async function getPerPillarCompliance(daysBack: number): Promise<{
-  muscle_bone: number;
-  fasting_nutrition: number;
-  brain_cognitive: number;
-}> {
+export async function getPerPillarCompliance(daysBack: number): Promise<Record<PillarKey, number>> {
   const endDate = getTodayString();
   const startDate = getDaysAgoString(daysBack - 1);
   const logs = await getLogsInRange(startDate, endDate);
 
-  let muscleDays = 0;
-  let fastingDays = 0;
-  let brainDays = 0;
-
-  for (const log of logs) {
-    muscleDays += log.muscle_bone;
-    fastingDays += log.fasting_nutrition;
-    brainDays += log.brain_cognitive;
+  // Count actual days per pillar
+  const actualDays: Record<string, number> = {};
+  for (const pillar of ALL_PILLARS) {
+    actualDays[pillar] = 0;
   }
 
-  // Muscle & Bone: sweet spot = 3 days per week, scaled to period
-  const expectedMuscleDays = Math.ceil(daysBack / 7) * 3;
-  const muscleRate = expectedMuscleDays > 0 ? muscleDays / expectedMuscleDays : 0;
+  for (const log of logs) {
+    for (const pillar of ALL_PILLARS) {
+      actualDays[pillar] += log[pillar];
+    }
+  }
 
-  // Nutrient & Brain: simple fraction of total days, capped at 1.0
-  const fastingRate = daysBack > 0 ? Math.min(fastingDays / daysBack, 1) : 0;
-  const brainRate = daysBack > 0 ? Math.min(brainDays / daysBack, 1) : 0;
+  // Calculate rates using dynamic targets
+  const weeks = countWeeks(daysBack);
+  const result: Record<string, number> = {};
 
-  return {
-    muscle_bone: muscleRate,
-    fasting_nutrition: fastingRate,
-    brain_cognitive: brainRate,
-  };
+  for (const pillar of ALL_PILLARS) {
+    const target = PILLAR_TARGETS[pillar];
+    const days = actualDays[pillar];
+
+    let rate: number;
+    if (target.noCap) {
+      // Weekly target: muscle (3x), vo2 (2x), brain (5x)
+      const expectedDays = weeks * target.perWeek;
+      rate = expectedDays > 0 ? days / expectedDays : 0;
+    } else {
+      // Daily target: fasting (7x), sleep (7x) → every day
+      rate = daysBack > 0 ? Math.min(days / daysBack, 1) : 0;
+    }
+
+    result[pillar] = rate;
+  }
+
+  return result as Record<PillarKey, number>;
 }
+
+type DayBreakdownRow = { date: string; compliance: number } & Record<PillarKey, number>;
 
 /**
  * Get detailed compliance breakdown per day for the last N days.
- * Returns an array of objects with date and compliance fraction.
+ * Returns an array of objects with date and all 5 pillar values.
  */
-export async function getDailyBreakdown(daysBack: number): Promise<
-  { date: string; compliance: number; muscle_bone: number; fasting_nutrition: number; brain_cognitive: number }[]
-> {
+export async function getDailyBreakdown(daysBack: number): Promise<DayBreakdownRow[]> {
   const endDate = getTodayString();
   const startDate = getDaysAgoString(daysBack - 1);
 
@@ -229,13 +291,7 @@ export async function getDailyBreakdown(daysBack: number): Promise<
   }
 
   // Generate all dates in range and map to logs
-  const result: {
-    date: string;
-    compliance: number;
-    muscle_bone: number;
-    fasting_nutrition: number;
-    brain_cognitive: number;
-  }[] = [];
+  const result: DayBreakdownRow[] = [];
 
   const current = new Date(startDate);
   const end = new Date(endDate);
@@ -244,15 +300,26 @@ export async function getDailyBreakdown(daysBack: number): Promise<
     const dateStr = formatDate(current);
     const log = logMap.get(dateStr);
 
-    result.push({
+    const row: Record<string, number | string> = {
       date: dateStr,
-      compliance: log
-        ? (log.muscle_bone + log.fasting_nutrition + log.brain_cognitive) / 3
-        : 0,
-      muscle_bone: log?.muscle_bone ?? 0,
-      fasting_nutrition: log?.fasting_nutrition ?? 0,
-      brain_cognitive: log?.brain_cognitive ?? 0,
-    });
+      compliance: 0,
+    };
+
+    if (log) {
+      let totalActive = 0;
+      for (const p of ALL_PILLARS) {
+        row[p] = log[p];
+        totalActive += log[p];
+      }
+      row.compliance = totalActive / ALL_PILLARS.length;
+    } else {
+      for (const p of ALL_PILLARS) {
+        row[p] = 0;
+      }
+      row.compliance = 0;
+    }
+
+    result.push(row as DayBreakdownRow);
 
     current.setDate(current.getDate() + 1);
   }

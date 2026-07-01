@@ -1,16 +1,26 @@
 import { Platform } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 
 const CHANNEL_ID = 'daily-checkin';
 const NOTIFICATION_ID = 'daily-reminder-21';
 
 /**
- * Lazy-load expo-notifications only when needed.
- * This avoids the import-time error that Expo Go logs for push notification
- * modules that aren't bundled. Local scheduled notifications remain fully
- * functional in Expo Go — the error message is only about remote/push
- * notifications which this app doesn't use.
+ * Detect if running inside Expo Go (StoreClient) vs a development build (Standalone).
+ * expo-notifications push token auto-registration triggers a console.error
+ * in Expo Go SDK 53+. We skip the import entirely to keep the terminal clean.
+ */
+const IS_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+/**
+ * Lazy-load expo-notifications only when NOT in Expo Go.
+ * This completely avoids the import-time console.error about push notifications
+ * being removed from Expo Go (our app only uses local notifications).
  */
 async function loadNotifications(): Promise<typeof import('expo-notifications') | null> {
+  if (IS_EXPO_GO) {
+    console.log('ℹ️ Daily reminder: needs a development build. Run "npx expo run:android" to build one.');
+    return null;
+  }
   try {
     return await import('expo-notifications');
   } catch {
@@ -77,7 +87,7 @@ export async function setupNotifications(hour = 21): Promise<void> {
       identifier: NOTIFICATION_ID,
       content: {
         title: 'Daily Check-in Reminder',
-        body: 'Jangan lupa catat hari ini: Muscle, Nutrient & Brain — cuma 3 tap aja! 💪🥗🧠',
+        body: 'Jangan lupa catat hari ini: Muscle, VO₂, Food, Sleep & Brain — cuma 5 tap aja! 💪🫀🥗☀️🧠',
         data: { screen: 'dashboard' },
       },
       trigger: {
