@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -198,9 +199,16 @@ export default function AnalyticsScreen() {
     }
   }, [selectedDays]);
 
+  // Reload data on mount + every time the screen comes into focus.
+  // This ensures Dashboard toggle changes reflect immediately in Analytics.
+  // useIsFocused from @react-navigation/native returns true when this tab is focused.
+  const isFocused = useIsFocused();
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (isFocused) {
+      loadData();
+    }
+  }, [isFocused, loadData]);
+
 
   const bdsPercent = Math.round(bdsRate * 100);
   const weeklyBdsPercent = Math.round(weeklyBds * 100);
